@@ -164,6 +164,9 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                 # Retrieve and store the height and width of the swastika
                 swastika_height, swastika_width, _ = swastika.shape
 
+                # Define the primaty and background colors of the template swastika
+
+
                 # Split the RGB channels
                 canvasImage_BGR = cv2.split(canvasImage)
                 swastika_BGR = cv2.split(swastika)
