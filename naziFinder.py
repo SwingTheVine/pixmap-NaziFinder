@@ -8,7 +8,7 @@ import aiohttp
 import cv2
 import numpy as np
 
-USER_AGENT = "pmfun naziFinder 0.1.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 0.1.1 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -164,37 +164,136 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                 # Retrieve and store the height and width of the swastika
                 swastika_height, swastika_width, _ = swastika.shape
 
-                # Define the primaty and background colors of the template swastika
+                # (Swastika) colors to look for
+                searchable_colors = [
+                    # White to Black
+                    [255, 255, 255], [228, 228, 228], [196, 196, 196], [136, 136, 136], [78, 78, 78], [0, 0, 0],
+                    # Pink to Red
+                    [244, 179, 174], [255, 167, 209], [255, 84, 178], [255, 101, 101], [229, 0, 0], [154, 0, 0],
+                    # Orange to Brown
+                    [254, 164, 96], [229, 149, 0], [160, 106, 66], [96, 64, 40],
+                    # Tan to Yellow
+                    [245, 223, 176], [255, 248, 137], [229, 217, 0],
+                    # Light Green to Dark Green
+                    [148, 224, 68], [2, 190, 1], [104, 131, 56], [0, 101, 19],
+                    # Light Blue to Dark Blue
+                    [202, 227, 255], [0, 211, 221], [0, 131, 199], [0, 0, 234], [25, 25, 115],
+                    # Lavender to (Purple to) Light Red
+                    [207, 110, 228], [130, 0, 128], [83, 39, 68], [125, 46, 78], [193, 55, 71],
+                    # Orange to Orange
+                    [214, 113, 55], [252, 154, 41],
+                    # Dark Purple to Orange
+                    [68, 33, 57], [131, 51, 33], [163, 61, 24], [223, 96, 22],
+                    # Dark Blue to Light Blue
+                    [31, 37, 127], [10, 79, 175], [10, 126, 230], [88, 237, 240],
+                    # Dark Purple to Lavander
+                    [37, 20, 51], [53, 33, 67], [66, 21, 100], [74, 27, 144], [110, 75, 237],
+                    # Dark Green to Lime
+                    [16, 58, 47], [16, 74, 31], [16, 142, 47], [16, 180, 47], [117, 215, 87]
+                ]
 
+                # Define the primaty and background colors of the template swastika
+                primary_color = [0, 0, 0]
+                background_color = [255, 255, 255]
 
                 # Split the RGB channels
                 canvasImage_BGR = cv2.split(canvasImage)
                 swastika_BGR = cv2.split(swastika)
 
-                # Match all channels
-                foundSwastikas = np.ones_like(cv2.matchTemplate(canvasImage_BGR[0], swastika_BGR[0], cv2.TM_CCOEFF_NORMED))
+                result = None # Declare result as None
 
-                result = None
+                for currentColor in searchable_colors:
 
-                for canvasImage_channel, swastika_channel in zip(canvasImage_BGR, swastika_BGR):
-                    match = cv2.matchTemplate(canvasImage_channel, swastika_channel, cv2.TM_CCOEFF_NORMED)
-                    if result is None:
-                        result = match
-                    else:
-                        result = cv2.min(result, match)
+                    # Creates a copy of the swastika template for colorshifting
+                    colorShiftSwastika = swastika.copy()
+
+                    # Creates a mask to find all black pixels in swastika template
+                    mask_primary = np.all(colorShiftSwastika == primary_color, axis=-1)
+
+                    # Replaces all black with the current color to search for
+                    colorShiftSwastika[mask_primary] = currentColor
+
+                    # Split the RGB channels
+                    colorShiftSwastika_BGR = cv2.split(colorShiftSwastika)
+
+                    greyscaleS = swastika.copy()
+                    greyscaleS = np.uint8(greyscaleS)
+                    #print(np.unique(greyscaleS))
+                    #greyscaleS = np.ones_like(swastika, dtype=np.uint8)
+                    greyscaleS = cv2.cvtColor(greyscaleS, cv2.COLOR_BGR2GRAY)
+                    _, mask_background = cv2.threshold(greyscaleS, 240, 255, cv2.THRESH_BINARY_INV)
+                    
+                    #mask_background = np.ones_like(swastika, dtype=np.uint8)
+
+                    mask_background = np.uint8(mask_background)
+
+                    mask_background = np.array([
+                        [  0,  0,  0,  0,  0,  0,  0],
+                        [  0,255,  0,255,255,255,  0],
+                        [  0,255,255,255,  0,  0,  0],
+                        [  0,255,255,  0,255,255,  0],
+                        [  0,  0,  0,255,  0,255,  0],
+                        [  0,255,255,255,  0,255,  0],
+                        [  0,  0,  0,  0,  0,  0,  0]], dtype=np.uint8)
+
+                    #mask_background = np.array([
+                    #    [255,255,255,255,255,255,255],
+                    #    [255,  0,255,  0,  0,  0,255],
+                    #    [255,  0,255,  0,255,255,255],
+                    #    [255,  0,  0,255,  0,  0,255],
+                    #    [255,255,255,  0,255,  0,255],
+                    #    [255,  0,  0,  0,255,  0,255],
+                    #    [255,255,255,255,255,255,255]], dtype=np.uint8)
+
+                    print(mask_background)
+
+                    #print(f"Template size: {swastika.shape}")
+                    #print(f"Mask size: {mask_background.shape}")
+
+                    
+
+                    #tempImage = mask_background.copy()
+                    #tempImage = cv2.resize(tempImage, (800, 800))
+                    #cv2.imshow("Image", tempImage)
+                    #cv2.waitKey(0)
+                    #cv2.destroyAllWindows()
+
+                    for canvasImage_channel, colorShiftSwastika_channel in zip(canvasImage_BGR, swastika_BGR):
+                        match = cv2.matchTemplate(canvasImage_channel, colorShiftSwastika_channel, cv2.TM_CCOEFF_NORMED, mask=mask_background)
+                        #print(match)
+                        if result is None:
+                            result = match
+                        else:
+                            result = cv2.min(result, match)
+
+                    numResults = np.where(result >= -1)
+
+                    #print(result)
                 
-                # Threshold and coordinate retrival
-                threshold = 0.9
-                swastikaLocations = np.where(result >= threshold)
+                    if result is not None:
+                        print(f'There are {len(numResults[0])} matches')
 
-                print("------------------------------------------------\nSwastikas Found:")
+                    # Threshold and coordinate retrival
+                    threshold = 0.9
+                    swastikaLocations = np.where(result >= threshold)
 
-                if len(swastikaLocations[0]) == 0:
-                    print("No swastikas found")
+                    print(f"------------------------------------------------\nSwastikas of color '{currentColor}' found:")
+                    if len(swastikaLocations[0]) == 0:
+                        print("No swastikas found")
                 
-                for pt in zip(*swastikaLocations[::-1]):
-                    sx, sy = pt
-                    print(f"https://pixmap.fun/#{canvas_id},{sx},{sy},36")
+                    for pt in zip(*swastikaLocations[::-1]):
+                        sx, sy = pt # Extract (s)wastika (x) coordinate and (s)wastika (y) coordinates from coordinate pair
+                        roi = canvasImage[sy:sy + swastika_height, sx:sx + swastika_width]
+
+                        # Checks to make sure that the primary color matches the current colorshift
+                        primary_color_match = np.all(roi[mask_primary] == currentColor)
+
+                        # Checks to make sure that the background color is any non-current color
+                        background_color_match = np.all(roi[~mask_primary] != currentColor)
+
+                        # If both checks above pass, then it is a 100% match
+                        if primary_color_match and background_color_match:
+                            print(f"https://pixmap.fun/#{canvas_id},{sx},{sy},36")
                 
 
                 if time == time_list[-1]:
@@ -240,7 +339,7 @@ async def main():
         return
 
     start = [0, 0] # [-32768, -32768] # Hard coded to full canvas
-    end = [2560, 2560] #[32767, 32767] # Hard coded to full canvas
+    end = [510, 510] #[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
