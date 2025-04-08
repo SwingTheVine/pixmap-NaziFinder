@@ -7,8 +7,9 @@ import asyncio
 import aiohttp
 import cv2
 import numpy as np
+import platform
 
-USER_AGENT = "pmfun naziFinder 0.4.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 0.5.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -18,6 +19,13 @@ PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 #  3 means every third
 #  [...]
 frameskip = 1
+
+def clear_screen():
+    system_name = platform.system()
+    if system_name == "Windows":
+        os.system('cls')
+    else:
+        os.system('clear')
 
 # Fetches the user data to use
 async def fetchMe():
@@ -113,6 +121,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
             for iy in range(yc, hc + 1):
                 for ix in range(xc, wc + 1):
                     url = '%s/%s/%s/%s/%s/tiles/%s/%s.png' % (PPFUN_STORAGE_URL, iter_date[0:4], iter_date[4:6] , iter_date[6:], canvas_id, ix, iy)
+                    print(f"Attempting GET at {url}")
                     offx = ix * 256 + offset - x
                     offy = iy * 256 + offset - y
                     tasks.append(fetch(session, url, offx, offy, image, bkg, True))
@@ -222,33 +231,37 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     }
                 
                 def convert_to_indexed(image, lut):
-                    # Create an indexed image by looking up BGR values in the LUT
+
+                    # Create an indexed image with the same shape as the input image
                     H, W, _ = image.shape
                     indexed_image = np.zeros((H, W), dtype=np.uint8)
 
-                    # Iterate through each pixel in the image
-                    for i in range(H):
-                        for j in range(W):
-                            bgr_color = tuple(image[i, j])  # Get the BGR value
-                            if bgr_color in lut:
-                                indexed_image[i, j] = lut[bgr_color]  # Use LUT to get the index
-                            else:
-                                indexed_image[i, j] = 0  # Default to 0 (or some other behavior for unknown colors)
+                    # Use broadcasting and vectorized approach to find matching BGR values
+                    for color_tuple, index in lut.items():
+                        mask = np.all(image == color_tuple, axis=-1)  # Create a mask for pixels matching the color tuple
+                        indexed_image[mask] = index  # Assign the index to matching pixels
 
                     return indexed_image
 
-                print("Attempting to load the image into memory...")
+                print("Attempting to load the canvas image into memory...")
 
                 # Call and load the images
-                bigCanvasImage = cv2.imread('./canvas/t%s.png' % (cnt)) # Load big canvas into memory
+                print("(Reading big canvas...)")
+                bigCanvasImage = cv2.imread(('./canvas/t%s.png' % (cnt)), cv2.IMREAD_COLOR) # Load big canvas into memory in uint8
+                print("(Shrinking canvas with LUT...)")
                 canvasImage = convert_to_indexed(bigCanvasImage, lut) # Shrink it using the LUT
+                print("(Releasing big canvas...)")
                 del bigCanvasImage # Release the big canvas from memory
+                print("(Reading template...)")
                 swastika = cv2.imread('./canvas/swastika.png') # Read the swastika template
+                print("(Shrinking template with LUT...)")
                 swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
 
                 print("Canvas is now loaded into memory")
 
-                print(f"\n\nIT MIGHT TAKE A WHILE...\n\n...to find anything. Wait for the \"Done!\" message.\nAttempting to find swastikas...")
+                clear_screen()
+
+                print(f"IT MIGHT TAKE A WHILE...\n\n\n...to find anything. Wait for the \"Done!\" message.\nAttempting to find swastikas...")
                 print(f"--------------  Swastikas  Found  --------------")
 
                 def get_lut_index(LUT, target_color):
@@ -287,7 +300,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     #if matchTemplateResult is not None:
                     #    print(f'DEBUG: There are {len(np.where(matchTemplateResult >= -1)[0])} matches of any confidence')
 
-                    threshold = 0.9
+                    threshold = 1
                     swastikaLocations = np.where(matchTemplateResult >= threshold)
 
                     #if len(swastikaLocations[0]) == 0:
@@ -340,7 +353,7 @@ async def main():
         return
 
     start = [0, 0]#[-32768, -32768] # Hard coded to full canvas
-    end = [510, 510]#[32767, 32767] # Hard coded to full canvas
+    end = [5000, 5000] #[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
