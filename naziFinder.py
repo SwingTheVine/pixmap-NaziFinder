@@ -10,8 +10,9 @@ import numpy as np
 import platform
 from concurrent.futures import ThreadPoolExecutor
 import time
+import re
 
-USER_AGENT = "pmfun naziFinder 0.8.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 0.9.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -178,7 +179,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
                 cnt += 1
                 #frames.append(image.copy())
                 #print("Attempting to save canvas image...")
-                image_rel.save('./canvas/t%s.png' % taskNumber) # t1 saved here
+                #image_rel.save('./canvas/t%s.png' % taskNumber) # t1 saved here
                 #print("Canvas image saved")
 
                 # (Swastika) colors to look for
@@ -250,16 +251,19 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
                     return indexed_image
 
                 #print("Attempting to load the canvas image into memory...")
+                
 
                 # Call and load the images
                 #print("(Reading big canvas...)")
-                bigCanvasImage = cv2.imread(('./canvas/t%s.png' % taskNumber), cv2.IMREAD_COLOR) # Load big canvas into memory in uint8
+                #bigCanvasImage = cv2.imread(('./canvas/t%s.png' % taskNumber), cv2.IMREAD_COLOR) # Load big canvas into memory in uint8
                 #print("(Shrinking canvas with LUT...)")
+                bigCanvasImage = np.array(image_rel)
+                bigCanvasImage = cv2.cvtColor(bigCanvasImage, cv2.COLOR_RGB2BGR)
                 canvasImage = convert_to_indexed(bigCanvasImage, lut) # Shrink it using the LUT
                 #print("(Releasing big canvas...)")
-                del bigCanvasImage # Release the big canvas from memory
+                #del bigCanvasImage # Release the big canvas from memory
                 #print("(Reading template...)")
-                swastika = cv2.imread('./canvas/swastika.png') # Read the swastika template
+                swastika = cv2.imread('./templates/s01_Swastika.png') # Read the swastika template
                 #print("(Shrinking template with LUT...)")
                 swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
 
@@ -289,20 +293,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
                     canvasImage = np.uint8(canvasImage)
 
                     # Creates a (1 channel) mask where all matching current colors are black and non-matching are white
-                    maskCanvasImage = cv2.inRange(canvasImage, currentColor, currentColor)
-
-
-                    canvasImage_BW = maskCanvasImage
-                    # Turns the 1 channel mask into a 3 channel image
-                    #canvasImage_BW = np.full_like(canvasImage, 255) # Creates an all white image of same dimentions as the canvasImage
-                    # Transpose the mask to the image
-                    # THIS COMMENT LINE IS NOT SAFE!!!!! canvasImage_BW[maskCanvasImage == 255] = [0, 0, 0]
-                    #maskCanvasImage2 = (maskCanvasImage == 255)
-                    #canvasImage_BW[maskCanvasImage2, 0] = 0
-                    #canvasImage_BW[maskCanvasImage2, 0] = 0
-                    #canvasImage_BW[maskCanvasImage2, 0] = 0
-
-                    #canvasImage_BW = canvasImage_BW.astype(np.uint8) # Here rests my RAM, no longer turned to dust by the 3 int64 arrays, totaling 6 billion elements
+                    canvasImage_BW = cv2.inRange(canvasImage, currentColor, currentColor)
 
                     # Stores all matches of all confidences of the black and white swastika to the black (which is actually the current color) and white (which is actually any other color) canvas
                     matchTemplateResult = cv2.matchTemplate(canvasImage_BW, swastika, cv2.TM_CCOEFF_NORMED)
@@ -341,7 +332,18 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
     total_pixels = image_width * image_height
     tasks = []
     results = []
+    swastikas = []
     taskNumber = 0
+
+    rePattern = re.compile(r's.*_.*\.(png|jpe?g)', re.IGNORECASE)
+
+    for filename in os.listdir('./templates'):
+        if rePattern.fullmatch(filename):
+            tempImg = cv2.imread(f'./templates/{filename}')
+            if tempImg is not None:
+                swastikas.append(tempImg)
+            del tempImg
+    print(f"length of templates: {len(swastikas)}")
     
     # Create a ThreadPoolExecutor with a specified number of threads
     with ThreadPoolExecutor() as executor:
@@ -417,16 +419,16 @@ async def main():
         print("Can\'t get area for 3D canvas")
         return
 
-    start = [0, 0]#[-32768, -32768] # Hard coded to full canvas
-    end = [32767, 32767] # Hard coded to full canvas
+    start = [0, 0] #[-32768, -32768] # Hard coded to full canvas
+    end = [2559, 2559]#[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
     y = int(start[1])
     w = int(end[0]) - x + 1
     h = int( end[1]) - y + 1
-    if not os.path.exists('./canvas'):
-        os.mkdir('./canvas')
+    if not os.path.exists('./templates'):
+        os.mkdir('./templates')
 
     with open("swastikaList.txt", 'w') as file:
         pass
