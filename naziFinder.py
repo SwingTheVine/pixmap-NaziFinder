@@ -16,13 +16,6 @@ USER_AGENT = "pmfun naziFinder 0.9.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
-# how many frames to skip
-#  1 means none
-#  2 means that every second frame gets captured
-#  3 means every third
-#  [...]
-frameskip = 1
-
 file_lock = asyncio.Lock()
 
 def clear_screen():
@@ -54,7 +47,7 @@ async def fetchMe():
                 await asyncio.sleep(5)
                 pass
             
-# Actually gets the chunk/image
+# Actually gets the megachunk
 async def fetch(session, url, offx, offy, image, bkg, needed = False):
     attempts = 0
     headers = {
@@ -84,8 +77,27 @@ async def fetch(session, url, offx, offy, image, bkg, needed = False):
             attempts += 1
             pass
 
+def get_lut_index(LUT, target_color):
+    # Use np.all to check for exact match across all 3 channels
+    for idx, color in enumerate(LUT):
+        if np.array_equal(color, target_color):  # Check if the colors match
+            return idx
+    return -1  # Return -1 if no match is found
+
+def convert_to_indexed(image, lut):
+
+    # Create an indexed image with the same shape as the input image
+    H, W, _ = image.shape
+    indexed_image = np.zeros((H, W), dtype=np.uint8)
+
+    # Use broadcasting and vectorized approach to find matching BGR values
+    for color_tuple, index in lut.items():
+        mask = np.all(image == color_tuple, axis=-1)  # Create a mask for pixels matching the color tuple
+        indexed_image[mask] = index  # Assign the index to matching pixels
+    return indexed_image
+
 # Gets the canvas
-async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumber):
+async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length):
     taskNumber = taskNumber % 4
     print(f"Processing mega-chunk #{taskNumber} at ({x}, {y}) with width {w} and height {h}...")
     
@@ -112,8 +124,9 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
     tasks = []
     async with aiohttp.ClientSession() as session:
 
+        print("Getting megachunk...")
         # Gets megachunk
-        image = PIL.Image.new('RGBA', (w, h))
+        image = PIL.Image.new('RGBA', (w, h)) # Fallback. If neither day loads, it matches on a blank megchunk
         for iy in range(yc, hc + 1):
             for ix in range(xc, wc + 1):
                 url = '%s/%s/%s/%s/%s/tiles/%s/%s.png' % (PPFUN_STORAGE_URL, iter_date[0:4], iter_date[4:6], iter_date[6:], canvas_id, ix, iy)
@@ -126,7 +139,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
         # check if image is all just one color to lazily detect if whole full backup was 404
         clr = image.getcolors(1)
         if clr is not None:
-            print("Got faulty full-backup frame for the megachunk, using previous day instead.")
+            print(f"The megachunk at ({x}, {y}) for today (the {int(iter_date[6:])}th) is faulty, using yesterday's (the {int(iter_date[6:])-1}th) megachunk instead.")
             
             # Rolls back the date 1 day
             iter_date = iter_date[:6] + str(int(iter_date[6:])-1).zfill(2)
@@ -140,36 +153,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
                     tasks.append(fetch(session, url, offx, offy, image, bkg, True))
             await asyncio.gather(*tasks)
 
-        # (Swastika) colors to look for
-        searchable_colors_RGB = [
-            # White to Black
-            [255, 255, 255], [228, 228, 228], [196, 196, 196], [136, 136, 136], [78, 78, 78], [0, 0, 0],
-            # Pink to Red
-            [244, 179, 174], [255, 167, 209], [255, 84, 178], [255, 101, 101], [229, 0, 0], [154, 0, 0],
-            # Orange to Brown
-            [254, 164, 96], [229, 149, 0], [160, 106, 66], [96, 64, 40],
-            # Tan to Yellow
-            [245, 223, 176], [255, 248, 137], [229, 217, 0],
-            # Light Green to Dark Green
-            [148, 224, 68], [2, 190, 1], [104, 131, 56], [0, 101, 19],
-            # Light Blue to Dark Blue
-            [202, 227, 255], [0, 211, 221], [0, 131, 199], [0, 0, 234], [25, 25, 115],
-            # Lavender to (Purple to) Light Red
-            [207, 110, 228], [130, 0, 128], [83, 39, 68], [125, 46, 78], [193, 55, 71],
-            # Orange to Orange
-            [214, 113, 55], [252, 154, 41],
-            # Dark Purple to Orange
-            [68, 33, 57], [131, 51, 33], [163, 61, 24], [223, 96, 22],
-            # Dark Blue to Light Blue
-            [31, 37, 127], [10, 79, 175], [10, 126, 230], [88, 237, 240],
-            # Dark Purple to Lavander
-            [37, 20, 51], [53, 33, 67], [66, 21, 100], [74, 27, 144], [110, 75, 237],
-            # Dark Green to Lime
-            [16, 58, 47], [16, 74, 31], [16, 142, 47], [16, 180, 47], [117, 215, 87]
-        ]
-
-        # Converts the RGB array to a BGR array
-        searchable_colors_BGR = [np.array(color[::-1], dtype=np.uint8) for color in searchable_colors_RGB]
+        print("mapping LUT")
 
         lut = {} # Custom Look-Up Table
 
@@ -178,86 +162,106 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
             lut[tuple(currentPalleteColor)] = index
         
         lutColorDictionary = {
-            0: "White         ", 1: "Off-White     ", 2: "Silver        ", 3: "Gray          ", 4: "Dark Gray     ",
-            5: "Black         ", 6: "Lite Pink     ", 7: "More Pink     ", 8: "Hot Pink      ", 9: "Lipstick Red 1",
-            10: "Red           ", 11: "Dark Red      ", 12: "Dark Tan      ", 13: "Tangerine     ", 14: "Light Brown   ",
-            15: "Coffee        ", 16: "Light Tan     ", 17: "Light Yellow  ", 18: "Mustard Yellow", 19: "Lime          ",
-            20: "Green         ", 21: "Green Bean    ", 22: "Camo Green 1  ", 23: "Cloud Blue    ", 24: "Robin Egg Blue",
-            25: "Medium Blue 1 ", 26: "Blue          ", 27: "Bluejean      ", 28: "Lavener       ", 29: "Eggplant      ",
-            30: "Ugly Purple?  ", 31: "Purple-Red Mix", 32: "Lipstick Red 2", 33: "Trump Tan     ", 34: "Caution Yellow",
-            35: "Purple (Brown)", 36: "Chocholate    ", 37: "MilkChocholate", 38: "Orange        ", 39: "Lapis Lazuli  ",
-            40: "TheBlueCorner ", 41: "Medium Blue 2 ", 42: "Turquoise     ", 43: "Purple-Black 1", 44: "Purple-Black 2",
-            45: "Dark Purple   ", 46: "Purple        ", 47: "Light Purple  ", 48: "Dark Green    ", 49: "Camo Green 2  ",
-            50: "Grass Green 1 ", 51: "Grass Green 2 ", 52: "Light Green   "
-            }
+            0: "White", 1: "Off-White", 2: "Silver", 3: "Gray", 4: "Dark Gray",
+            5: "Black", 6: "Lite Pink", 7: "More Pink", 8: "Hot Pink", 9: "Lipstick Red 1",
+            10: "Red", 11: "Dark Red", 12: "Dark Tan", 13: "Tangerine", 14: "Light Brown",
+            15: "Coffee", 16: "Light Tan", 17: "Light Yellow", 18: "Mustard Yellow", 19: "Lime",
+            20: "Green", 21: "Green Bean", 22: "Camo Green 1", 23: "Cloud Blue    ", 24: "Robin Egg Blue",
+            25: "Medium Blue 1", 26: "Blue", 27: "Bluejean", 28: "Lavener", 29: "Eggplant",
+            30: "Ugly Purple?", 31: "Purple-Red Mix", 32: "Lipstick Red 2", 33: "Trump Tan", 34: "Caution Yellow",
+            35: "Purple (Brown)", 36: "Chocholate", 37: "Milk Chocholate", 38: "Orange", 39: "Lapis Lazuli",
+            40: "TheBlueCorner", 41: "Medium Blue 2", 42: "Turquoise", 43: "Purple-Black 1", 44: "Purple-Black 2",
+            45: "Dark Purple", 46: "Purple", 47: "Light Purple", 48: "Dark Green", 49: "Camo Green 2",
+            50: "Grass Green 1", 51: "Grass Green 2", 52: "Light Green"
+        }
+
+        print("Loading canvas")
         
-        def convert_to_indexed(image, lut):
-
-            # Create an indexed image with the same shape as the input image
-            H, W, _ = image.shape
-            indexed_image = np.zeros((H, W), dtype=np.uint8)
-
-            # Use broadcasting and vectorized approach to find matching BGR values
-            for color_tuple, index in lut.items():
-                mask = np.all(image == color_tuple, axis=-1)  # Create a mask for pixels matching the color tuple
-                indexed_image[mask] = index  # Assign the index to matching pixels
-
-            return indexed_image
-
-
         # Call and load the images
         bigCanvasImage = np.array(image)
         bigCanvasImage = cv2.cvtColor(bigCanvasImage, cv2.COLOR_RGB2BGR)
         canvasImage = convert_to_indexed(bigCanvasImage, lut) # Shrink it using the LUT
-        swastika = cv2.imread('./templates/s01_Swastika.png') # Read the swastika template
-        swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
-
-        # If the template is larger than the megachunk, we just ignore the megachunk
-        #if swastika.shape[0] > canvasImage.shape[0] or swastika.shape[1] > canvasImage.shape[1]:
-        #    continue #!TODO
-
-        def get_lut_index(LUT, target_color):
-            # Use np.all to check for exact match across all 3 channels
-            for idx, color in enumerate(LUT):
-                if np.array_equal(color, target_color):  # Check if the colors match
-                    return idx
-            return -1  # Return -1 if no match is found
+        
+        canvasImage = np.uint8(canvasImage)
 
         for currentColor in searchable_colors_BGR:
+            print("Swapping color...")
 
             # Converts the current color to the LUT index
             currentColor = get_lut_index(lut, currentColor)
 
-            canvasImage = np.uint8(canvasImage)
-
             # Creates a (1 channel) mask where all matching current colors are black and non-matching are white
             canvasImage_BW = cv2.inRange(canvasImage, currentColor, currentColor)
 
-            # Stores all matches of all confidences of the black and white swastika to the black (which is actually the current color) and white (which is actually any other color) canvas
-            matchTemplateResult = cv2.matchTemplate(canvasImage_BW, swastika, cv2.TM_CCOEFF_NORMED)
+            swastikas = zip(swastikas_swas, swastikas_name)
+            for swastika, swastika_name in swastikas:
+                print("swapping swastika...")
+                swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
 
-            #if matchTemplateResult is not None:
-            #    print(f'DEBUG: There are {len(np.where(matchTemplateResult >= -1)[0])} matches of any confidence')
+                # If the template is larger than the megachunk, we just ignore the megachunk
+                if swastika.shape[0] > canvasImage.shape[0] or swastika.shape[1] > canvasImage.shape[1]:
+                    continue
 
-            threshold = 1
-            swastikaLocations = np.where(matchTemplateResult >= threshold)
+                # Stores all matches of all confidences of the black and white swastika to the black (which is actually the current color) and white (which is actually any other color) canvas
+                matchTemplateResult = cv2.matchTemplate(canvasImage_BW, swastika, cv2.TM_CCOEFF_NORMED)
 
-            for X_Y_Pair in zip(*swastikaLocations[::-1]):
-                swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
-                #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
-                #cv2.waitKey(0)
-                #cv2.destroyAllWindows()
-                #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
-                async with file_lock:
-                    with open("swastikaList.txt", "a") as f:
-                        f.write(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
+                # Debuging matching
+                #if matchTemplateResult is not None:
+                #    print(f'{swastika_name}: There are {len(np.where(matchTemplateResult >= -1)[0])} matches of any confidence')
+
+                threshold = 1
+                swastikaLocations = np.where(matchTemplateResult >= threshold)
+                print("writting...")
+                for X_Y_Pair in zip(*swastikaLocations[::-1]):
+                    swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
+                    #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
+                    #cv2.waitKey(0)
+                    #cv2.destroyAllWindows()
+                    #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
+                    detectedName = f"{lutColorDictionary[currentColor]} {swastika_name}"
+                    async with file_lock:
+                        with open("swastikaList.txt", "a") as f:
+                            f.write(f"{detectedName:<{display_length}} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
         image.close()
 
 # Function to process the image in chunks of 2000 pixels
 async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_width, image_height, start_date, end_date, chunk_size=2560):
     tasks = []
-    swastikas = []
+    swastikas_swas = []
+    swastikas_name = []
+    longest_name = 0
     taskNumber = 0
+
+    # (Swastika) colors to look for
+    searchable_colors_RGB = [
+        # White to Black
+        [255, 255, 255], [228, 228, 228], [196, 196, 196], [136, 136, 136], [78, 78, 78], [0, 0, 0],
+        # Pink to Red
+        [244, 179, 174], [255, 167, 209], [255, 84, 178], [255, 101, 101], [229, 0, 0], [154, 0, 0],
+        # Orange to Brown
+        [254, 164, 96], [229, 149, 0], [160, 106, 66], [96, 64, 40],
+        # Tan to Yellow
+        [245, 223, 176], [255, 248, 137], [229, 217, 0],
+        # Light Green to Dark Green
+        [148, 224, 68], [2, 190, 1], [104, 131, 56], [0, 101, 19],
+        # Light Blue to Dark Blue
+        [202, 227, 255], [0, 211, 221], [0, 131, 199], [0, 0, 234], [25, 25, 115],
+        # Lavender to (Purple to) Light Red
+        [207, 110, 228], [130, 0, 128], [83, 39, 68], [125, 46, 78], [193, 55, 71],
+        # Orange to Orange
+        [214, 113, 55], [252, 154, 41],
+        # Dark Purple to Orange
+        [68, 33, 57], [131, 51, 33], [163, 61, 24], [223, 96, 22],
+        # Dark Blue to Light Blue
+        [31, 37, 127], [10, 79, 175], [10, 126, 230], [88, 237, 240],
+        # Dark Purple to Lavander
+        [37, 20, 51], [53, 33, 67], [66, 21, 100], [74, 27, 144], [110, 75, 237],
+        # Dark Green to Lime
+        [16, 58, 47], [16, 74, 31], [16, 142, 47], [16, 180, 47], [117, 215, 87]
+    ]
+
+    # Converts the RGB array to a BGR array
+    searchable_colors_BGR = [np.array(color[::-1], dtype=np.uint8) for color in searchable_colors_RGB]
 
     # Finds and loads all templates as BGR images
     rePattern = re.compile(r's.*_.*\.(png|jpe?g)', re.IGNORECASE)
@@ -265,8 +269,14 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
         if rePattern.fullmatch(filename):
             tempImg = cv2.imread(f'./templates/{filename}')
             if tempImg is not None:
-                swastikas.append(tempImg)
+                swastikas_swas.append(tempImg)
+
+                swasName = filename.split('_', 1)[1].replace('.png', '')
+                swastikas_name.append(swasName)
+                if longest_name < len(swasName):
+                    longest_name = len(swasName)
             del tempImg
+    display_length = 16 + longest_name
     
     # Create a ThreadPoolExecutor with a specified number of threads
     with ThreadPoolExecutor() as executor:
@@ -279,7 +289,7 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
                 chunk_height = min(chunk_size, image_height - y)  # Avoid going beyond the image height
 
                 # Call the async get_area function for the current chunk
-                tasks.append(get_area(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date, taskNumber))
+                tasks.append(get_area(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length))
 
         batch_size = 4
         total_timer_start = time.time()
@@ -295,7 +305,7 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
 
             batch_time = batch_timer_end - batch_timer_start
 
-            clear_screen()
+            #clear_screen()
             processedChunks += len(batch)
             print(f"Processed {len(batch)} mega-chunks in parallel which took {(batch_time / 60):.0f} minutes and {(batch_time % 60):02.0f} seconds")
 
@@ -356,9 +366,8 @@ async def main():
     with open("swastikaList.txt", 'w') as file:
         pass
 
-    clear_screen()
+    #clear_screen()
 
-    #await get_area(canvas_id, canvas, x, y, w, h, start_date, end_date)
     await process_image_in_chunks(canvas_id, canvas, x, y, w, h, start_date, end_date, chunk_size=2560)
     print("-----  Done!  -----")
 
