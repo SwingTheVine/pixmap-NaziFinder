@@ -8,8 +8,10 @@ import aiohttp
 import cv2
 import numpy as np
 import platform
+from concurrent.futures import ThreadPoolExecutor
+import time
 
-USER_AGENT = "pmfun naziFinder 0.5.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 0.6.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -19,6 +21,8 @@ PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 #  3 means every third
 #  [...]
 frameskip = 1
+
+file_lock = asyncio.Lock()
 
 def clear_screen():
     system_name = platform.system()
@@ -81,6 +85,7 @@ async def fetch(session, url, offx, offy, image, bkg, needed = False):
 
 # Gets the canvas
 async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
+    print(f"Processing mega-chunk at ({x}, {y}) with width {w} and height {h}...")
     canvas_size = canvas["size"]
     bkg = tuple(canvas['colors'][0])
 
@@ -92,8 +97,8 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
     previous_day = PIL.Image.new('RGB', (w, h), color=bkg)
     while iter_date != end_date:
         iter_date = start_date.strftime("%Y%m%d")
-        print('------------------------------------------------')
-        print('Getting frames for date %s' % (iter_date))
+        #print('------------------------------------------------')
+        #print('Getting frames for date %s' % (iter_date))
         start_date = start_date + delta
 
         fetch_canvas_size = canvas_size
@@ -110,24 +115,24 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
         wc = (x + w - offset) // 256
         yc = (y - offset) // 256
         hc = (y + h - offset) // 256
-        print("Load from %s / %s to %s / %s with canvas size %s" % (xc, yc, wc + 1, hc + 1, fetch_canvas_size))
+        #print("Load from %s / %s to %s / %s with canvas size %s" % (xc, yc, wc + 1, hc + 1, fetch_canvas_size))
 
         # Calls and loads the chunk
         tasks = []
         async with aiohttp.ClientSession() as session:
-            print("Attempting to get start of day image...")
+            #print("Attempting to get start of day image...")
 
             image = PIL.Image.new('RGBA', (w, h))
             for iy in range(yc, hc + 1):
                 for ix in range(xc, wc + 1):
                     url = '%s/%s/%s/%s/%s/tiles/%s/%s.png' % (PPFUN_STORAGE_URL, iter_date[0:4], iter_date[4:6] , iter_date[6:], canvas_id, ix, iy)
-                    print(f"Attempting GET at {url}")
+                    #print(f"Attempting GET at {url}")
                     offx = ix * 256 + offset - x
                     offy = iy * 256 + offset - y
                     tasks.append(fetch(session, url, offx, offy, image, bkg, True))
             await asyncio.gather(*tasks)
 
-            print('Got start of day')
+            #print('Got start of day')
 
             # check if image is all just one color to lazily detect if whole full backup was 404
             clr = image.getcolors(1)
@@ -158,7 +163,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     continue
                 tasks = []
 
-                print(f"Attempting to get image from {time} time of day...")
+                #print(f"Attempting to get image from {time} time of day...")
 
                 image_rel = image.copy()
                 for iy in range(yc, hc + 1):
@@ -168,12 +173,12 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                         offy = iy * 256 + offset - y
                         tasks.append(fetch(session, url, offx, offy, image_rel, bkg))
                 await asyncio.gather(*tasks)
-                print('Got time %s' % (time))
+                #print('Got time %s' % (time))
                 cnt += 1
                 #frames.append(image.copy())
-                print("Attempting to save canvas image...")
+                #print("Attempting to save canvas image...")
                 image_rel.save('./canvas/t%s.png' % (cnt)) # t1 saved here
-                print("Canvas image saved")
+                #print("Canvas image saved")
 
                 # (Swastika) colors to look for
                 searchable_colors_RGB = [
@@ -203,12 +208,12 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     [16, 58, 47], [16, 74, 31], [16, 142, 47], [16, 180, 47], [117, 215, 87]
                 ]
 
-                print("Converting the RGB pallete into BGR...")
+                #print("Converting the RGB pallete into BGR...")
 
                 # Converts the RGB array to a BGR array
                 searchable_colors_BGR = [np.array(color[::-1], dtype=np.uint8) for color in searchable_colors_RGB]
 
-                print("The RGB pallete now has a BGR mirror")
+                #print("The RGB pallete now has a BGR mirror")
 
                 lut = {} # Custom Look-Up Table
 
@@ -243,26 +248,26 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
 
                     return indexed_image
 
-                print("Attempting to load the canvas image into memory...")
+                #print("Attempting to load the canvas image into memory...")
 
                 # Call and load the images
-                print("(Reading big canvas...)")
+                #print("(Reading big canvas...)")
                 bigCanvasImage = cv2.imread(('./canvas/t%s.png' % (cnt)), cv2.IMREAD_COLOR) # Load big canvas into memory in uint8
-                print("(Shrinking canvas with LUT...)")
+                #print("(Shrinking canvas with LUT...)")
                 canvasImage = convert_to_indexed(bigCanvasImage, lut) # Shrink it using the LUT
-                print("(Releasing big canvas...)")
+                #print("(Releasing big canvas...)")
                 del bigCanvasImage # Release the big canvas from memory
-                print("(Reading template...)")
+                #print("(Reading template...)")
                 swastika = cv2.imread('./canvas/swastika.png') # Read the swastika template
-                print("(Shrinking template with LUT...)")
+                #print("(Shrinking template with LUT...)")
                 swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
 
-                print("Canvas is now loaded into memory")
+                #print("Canvas is now loaded into memory")
 
-                clear_screen()
+                #clear_screen()
 
-                print(f"IT MIGHT TAKE A WHILE...\n\n\n...to find anything. Wait for the \"Done!\" message.\nAttempting to find swastikas...")
-                print(f"--------------  Swastikas  Found  --------------")
+                #print(f"IT MIGHT TAKE A WHILE...\n\n\n...to find anything. Wait for the \"Done!\" message.\nAttempting to find swastikas...")
+                #print(f"--------------  Swastikas  Found  --------------")
 
                 def get_lut_index(LUT, target_color):
                     # Use np.all to check for exact match across all 3 channels
@@ -308,7 +313,10 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     
                     for X_Y_Pair in zip(*swastikaLocations[::-1]):
                         swastika_X, swastika_Y = X_Y_Pair
-                        print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
+                        #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
+                        async with file_lock:
+                            with open("swastikaList.txt", "a") as f:
+                                f.write(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36\n")
 
                 if time == time_list[-1]:
                     # if last element of day, copy it to previous_day to reuse it when needed
@@ -319,6 +327,53 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
             image.close()
     previous_day.close()
 
+# Function to process the image in chunks of 2000 pixels
+async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_width, image_height, start_date, end_date, chunk_size=2560):
+    # Total number of pixels in the image (assuming it's grayscale for simplicity)
+    total_pixels = image_width * image_height
+    tasks = []
+    results = []
+    
+    # Create a ThreadPoolExecutor with a specified number of threads
+    with ThreadPoolExecutor() as executor:
+        # Chunk dimensions: Calculate how many chunks we need based on the image dimensions
+        for y in range(start_y, image_height, chunk_size):
+            for x in range(start_x, image_width, chunk_size):
+                # Calculate the current chunk's width and height
+                chunk_width = min(chunk_size, image_width - x)  # Avoid going beyond the image width
+                chunk_height = min(chunk_size, image_height - y)  # Avoid going beyond the image height
+
+                # Call the async get_area function for the current chunk
+                tasks.append(get_area(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date))
+        # Wait for all tasks to complete and retrieve results
+        #print(len(tasks))
+        #await asyncio.gather(*tasks)
+        batch_size = 4
+        total_timer_start = time.time()
+        for i in range(0, len(tasks), batch_size):
+            print(f"THIS MIGHT TAKE A WHILE\nBatch {((i/4)+1):.0f} of {((((len(tasks)+batch_size-1)//batch_size)*batch_size)/4):.0f}\n\n\nWait until you see the \"Done!\" message.")
+            
+            batch = tasks[i:i + batch_size]
+
+            batch_timer_start = time.time()
+            await asyncio.gather(*batch)
+            batch_timer_end = time.time()
+
+            batch_time = batch_timer_end - batch_timer_start
+
+            clear_screen()
+            print(f"Processed {len(batch)} mega-chunks in parallel which took {(batch_time / 60):.0f} minutes and {(batch_time % 60):02.0f} seconds")
+
+        total_timer_end = time.time()
+        total_time = total_timer_end - total_timer_start
+        print(f"Processed all {len(tasks)*batch_size} mega-chunks ({len(tasks)*batch_size*(chunk_size/256):.0f} chunks) in {(total_time / 60):.0f} minutes and {(total_time % 60):02.0f} seconds")
+        print("All swastikas have been saved to \"swastikaList.txt\"")
+        print(f"-----  Here are the swastikas found  -----")
+
+        with open("swastikaList.txt", "r") as file:
+            for line in file:
+                print(line, end="")  # end="" prevents double newlines
+            
 
 async def main():
     apime = await fetchMe()
@@ -353,7 +408,7 @@ async def main():
         return
 
     start = [0, 0]#[-32768, -32768] # Hard coded to full canvas
-    end = [5000, 5000] #[32767, 32767] # Hard coded to full canvas
+    end = [10000, 10000]#[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
@@ -362,8 +417,15 @@ async def main():
     h = int( end[1]) - y + 1
     if not os.path.exists('./canvas'):
         os.mkdir('./canvas')
-    await get_area(canvas_id, canvas, x, y, w, h, start_date, end_date)
-    print("Done!")
+
+    with open("swastikaList.txt", 'w') as file:
+        pass
+
+    clear_screen()
+
+    #await get_area(canvas_id, canvas, x, y, w, h, start_date, end_date)
+    await process_image_in_chunks(canvas_id, canvas, x, y, w, h, start_date, end_date, chunk_size=2560)
+    print("-----  Done!  -----")
 
 if __name__ == "__main__":
     asyncio.run(main())
