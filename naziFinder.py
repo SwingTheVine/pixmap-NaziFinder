@@ -121,9 +121,9 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
             if clr is not None:
                 print("Got faulty full-backup frame, using last frame from previous day instead.")
                 image = previous_day.copy()
-            cnt += 1
+            #cnt += 1
             #frames.append(image.copy())
-            image.save('./canvas/t%s.png' % (cnt))
+            #image.save('./canvas/t%s.png' % (cnt))
             headers = {
                 'User-Agent': USER_AGENT
             }
@@ -192,6 +192,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                 # Converts the RGB array to a BGR array
                 searchable_colors_BGR = [np.array(color[::-1]) for color in searchable_colors_RGB]
 
+                print(f"\n\nIT MIGHT TAKE A WHILE to find anything. Wait for the \"Done!\" message")
                 print(f"--------------  Swastikas  Found  --------------")
 
                 for currentColor in searchable_colors_BGR:
@@ -212,8 +213,8 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     threshold = 0.9
                     swastikaLocations = np.where(matchTemplateResult >= threshold)
 
-                    if len(swastikaLocations[0]) == 0:
-                        print(f"[{currentColor[0]:3},{currentColor[1]:4},{currentColor[2]:4}] - No swastikas found for this color")
+                    #if len(swastikaLocations[0]) == 0:
+                    #    print(f"[{currentColor[0]:3},{currentColor[1]:4},{currentColor[2]:4}] - No swastikas found for this color")
                     
                     for X_Y_Pair in zip(*swastikaLocations[::-1]):
                         swastika_X, swastika_Y = X_Y_Pair
@@ -261,8 +262,8 @@ async def main():
         print("Can\'t get area for 3D canvas")
         return
 
-    start = [0, 0] # [-32768, -32768] # Hard coded to full canvas
-    end = [510, 510] #[32767, 32767] # Hard coded to full canvas
+    start = [0, 0]#[-32768, -32768] # Hard coded to full canvas
+    end = [510, 510]#[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
