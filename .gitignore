@@ -1,4 +1,5 @@
 canvas/t*.png
+swastikaList.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
