@@ -11,7 +11,7 @@ import platform
 from concurrent.futures import ThreadPoolExecutor
 import time
 
-USER_AGENT = "pmfun naziFinder 0.7.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 0.8.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -263,6 +263,10 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
                 #print("(Shrinking template with LUT...)")
                 swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
 
+                # If the template is larger than the megachunk, we just ignore the megachunk
+                if swastika.shape[0] > canvasImage.shape[0] or swastika.shape[1] > canvasImage.shape[1]:
+                    continue
+
                 #print("Canvas is now loaded into memory")
 
                 #clear_screen()
@@ -414,7 +418,7 @@ async def main():
         return
 
     start = [0, 0]#[-32768, -32768] # Hard coded to full canvas
-    end = [5119, 5119]#[32767, 32767] # Hard coded to full canvas
+    end = [32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
