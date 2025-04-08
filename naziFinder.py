@@ -11,7 +11,7 @@ import platform
 from concurrent.futures import ThreadPoolExecutor
 import time
 
-USER_AGENT = "pmfun naziFinder 0.6.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 0.7.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -84,8 +84,9 @@ async def fetch(session, url, offx, offy, image, bkg, needed = False):
             pass
 
 # Gets the canvas
-async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
-    print(f"Processing mega-chunk at ({x}, {y}) with width {w} and height {h}...")
+async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumber):
+    taskNumber = taskNumber % 4
+    print(f"Processing mega-chunk #{taskNumber} at ({x}, {y}) with width {w} and height {h}...")
     canvas_size = canvas["size"]
     bkg = tuple(canvas['colors'][0])
 
@@ -177,7 +178,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                 cnt += 1
                 #frames.append(image.copy())
                 #print("Attempting to save canvas image...")
-                image_rel.save('./canvas/t%s.png' % (cnt)) # t1 saved here
+                image_rel.save('./canvas/t%s.png' % taskNumber) # t1 saved here
                 #print("Canvas image saved")
 
                 # (Swastika) colors to look for
@@ -252,7 +253,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
 
                 # Call and load the images
                 #print("(Reading big canvas...)")
-                bigCanvasImage = cv2.imread(('./canvas/t%s.png' % (cnt)), cv2.IMREAD_COLOR) # Load big canvas into memory in uint8
+                bigCanvasImage = cv2.imread(('./canvas/t%s.png' % taskNumber), cv2.IMREAD_COLOR) # Load big canvas into memory in uint8
                 #print("(Shrinking canvas with LUT...)")
                 canvasImage = convert_to_indexed(bigCanvasImage, lut) # Shrink it using the LUT
                 #print("(Releasing big canvas...)")
@@ -312,11 +313,14 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date):
                     #    print(f"[{currentColor[0]:3},{currentColor[1]:4},{currentColor[2]:4}] - No swastikas found for this color")
                     
                     for X_Y_Pair in zip(*swastikaLocations[::-1]):
-                        swastika_X, swastika_Y = X_Y_Pair
+                        swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
+                        #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
+                        #cv2.waitKey(0)
+                        #cv2.destroyAllWindows()
                         #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
                         async with file_lock:
                             with open("swastikaList.txt", "a") as f:
-                                f.write(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36\n")
+                                f.write(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
 
                 if time == time_list[-1]:
                     # if last element of day, copy it to previous_day to reuse it when needed
@@ -333,18 +337,20 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
     total_pixels = image_width * image_height
     tasks = []
     results = []
+    taskNumber = 0
     
     # Create a ThreadPoolExecutor with a specified number of threads
     with ThreadPoolExecutor() as executor:
         # Chunk dimensions: Calculate how many chunks we need based on the image dimensions
         for y in range(start_y, image_height, chunk_size):
             for x in range(start_x, image_width, chunk_size):
+                taskNumber = taskNumber + 1
                 # Calculate the current chunk's width and height
                 chunk_width = min(chunk_size, image_width - x)  # Avoid going beyond the image width
                 chunk_height = min(chunk_size, image_height - y)  # Avoid going beyond the image height
 
                 # Call the async get_area function for the current chunk
-                tasks.append(get_area(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date))
+                tasks.append(get_area(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date, taskNumber))
         # Wait for all tasks to complete and retrieve results
         #print(len(tasks))
         #await asyncio.gather(*tasks)
@@ -408,7 +414,7 @@ async def main():
         return
 
     start = [0, 0]#[-32768, -32768] # Hard coded to full canvas
-    end = [10000, 10000]#[32767, 32767] # Hard coded to full canvas
+    end = [5119, 5119]#[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
