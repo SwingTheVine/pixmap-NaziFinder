@@ -124,7 +124,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
     tasks = []
     async with aiohttp.ClientSession() as session:
 
-        print("Getting megachunk...")
+        print(f"#{taskNumber} Getting megachunk...")
         # Gets megachunk
         image = PIL.Image.new('RGBA', (w, h)) # Fallback. If neither day loads, it matches on a blank megchunk
         for iy in range(yc, hc + 1):
@@ -153,7 +153,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
                     tasks.append(fetch(session, url, offx, offy, image, bkg, True))
             await asyncio.gather(*tasks)
 
-        print("mapping LUT")
+        print(f"#{taskNumber} mapping LUT")
 
         lut = {} # Custom Look-Up Table
 
@@ -175,7 +175,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
             50: "Grass Green 1", 51: "Grass Green 2", 52: "Light Green"
         }
 
-        print("Loading canvas")
+        print(f"#{taskNumber} Loading canvas")
         
         # Call and load the images
         bigCanvasImage = np.array(image)
@@ -185,7 +185,7 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
         canvasImage = np.uint8(canvasImage)
 
         for currentColor in searchable_colors_BGR:
-            print("Swapping color...")
+            print(f"#{taskNumber} Swapping color to {currentColor}...")
 
             # Converts the current color to the LUT index
             currentColor = get_lut_index(lut, currentColor)
@@ -194,35 +194,39 @@ async def get_area(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumb
             canvasImage_BW = cv2.inRange(canvasImage, currentColor, currentColor)
 
             swastikas = zip(swastikas_swas, swastikas_name)
+            swastasks = []
             for swastika, swastika_name in swastikas:
-                print("swapping swastika...")
-                swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
-
-                # If the template is larger than the megachunk, we just ignore the megachunk
-                if swastika.shape[0] > canvasImage.shape[0] or swastika.shape[1] > canvasImage.shape[1]:
-                    continue
-
-                # Stores all matches of all confidences of the black and white swastika to the black (which is actually the current color) and white (which is actually any other color) canvas
-                matchTemplateResult = cv2.matchTemplate(canvasImage_BW, swastika, cv2.TM_CCOEFF_NORMED)
-
-                # Debuging matching
-                #if matchTemplateResult is not None:
-                #    print(f'{swastika_name}: There are {len(np.where(matchTemplateResult >= -1)[0])} matches of any confidence')
-
-                threshold = 1
-                swastikaLocations = np.where(matchTemplateResult >= threshold)
-                print("writting...")
-                for X_Y_Pair in zip(*swastikaLocations[::-1]):
-                    swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
-                    #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
-                    #cv2.waitKey(0)
-                    #cv2.destroyAllWindows()
-                    #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
-                    detectedName = f"{lutColorDictionary[currentColor]} {swastika_name}"
-                    async with file_lock:
-                        with open("swastikaList.txt", "a") as f:
-                            f.write(f"{detectedName:<{display_length}} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
+                swastasks.append(swas(swastika, swastika_name, lut, canvasImage, canvasImage_BW, lutColorDictionary, currentColor, display_length, canvas_id, x, y, taskNumber))
+            await asyncio.gather(*swastasks)
         image.close()
+
+async def swas(swastika, swastika_name, lut, canvasImage, canvasImage_BW, lutColorDictionary, currentColor, display_length, canvas_id, x, y, taskNumber):
+    print(f"#{taskNumber} swapping swastika to {swastika_name}...")
+    swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
+
+    # If the template is larger than the megachunk, we just ignore the megachunk
+    if swastika.shape[0] < canvasImage.shape[0] and swastika.shape[1] < canvasImage.shape[1]:
+
+        # Stores all matches of all confidences of the black and white swastika to the black (which is actually the current color) and white (which is actually any other color) canvas
+        matchTemplateResult = cv2.matchTemplate(canvasImage_BW, swastika, cv2.TM_CCOEFF_NORMED)
+
+        # Debuging matching
+        #if matchTemplateResult is not None:
+        #    print(f'{swastika_name}: There are {len(np.where(matchTemplateResult >= -1)[0])} matches of any confidence')
+
+        threshold = 1
+        swastikaLocations = np.where(matchTemplateResult >= threshold)
+        print(f"#{taskNumber} writting...")
+        for X_Y_Pair in zip(*swastikaLocations[::-1]):
+            swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
+            #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
+            #cv2.waitKey(0)
+            #cv2.destroyAllWindows()
+            #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
+            detectedName = f"{lutColorDictionary[currentColor]} {swastika_name}"
+            async with file_lock:
+                with open("swastikaList.txt", "a") as f:
+                    f.write(f"{detectedName:<{display_length}} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
 
 # Function to process the image in chunks of 2000 pixels
 async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_width, image_height, start_date, end_date, chunk_size=2560):
@@ -353,7 +357,7 @@ async def main():
         return
 
     start = [0, 0] #[-32768, -32768] # Hard coded to full canvas
-    end = [5119, 5119]#[32767, 32767] # Hard coded to full canvas
+    end = [2550, 2550]#[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     end_date = datetime.date.today()
     x = int(start[0])
