@@ -16,7 +16,7 @@ import urllib.request
 import json
 import traceback
 
-USER_AGENT = "pmfun naziFinder 0.10.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 1.0.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -379,7 +379,8 @@ def main():
 
     total_timer_start = time.time()
 
-    #clear_screen()
+    clear_screen()
+    print("-----     THIS MIGHT TAKE A WHILE     -----\n       Wait for the \"Done!\" message")
     try:
 
         workerNumber = int(os.cpu_count()/2)
@@ -418,6 +419,7 @@ def main():
                 if os.path.exists(f'./swastikaList{workerNum+1}.txt'):
                     with open(f'./swastikaList{workerNum+1}.txt', 'r') as swasList:
                         swasListAll.write(swasList.read())
+        clear_screen()
         print("All swastikas have been saved to \"swastikaList.txt\"")
         
         total_timer_end = time.time()
