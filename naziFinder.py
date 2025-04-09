@@ -149,7 +149,7 @@ async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, end_date, t
                     offy = iy * 256 + offset - y
                     tasks.append(fetch_chunk(session, url, offx, offy, image, bkg, True))
             await asyncio.gather(*tasks)
-        queue.put(image)
+        queue.put((taskNumber, image))
         print(f"Fetched megachunk #{taskNumber}")
         #image.close()
 
@@ -298,21 +298,7 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
     
     total_timer_start = time.time()
     processedChunks = 0
-    #for i in range(0, len(tasks), batch_size):
-    #    print(f"THIS MIGHT TAKE A WHILE\nBatch {((i/4)+1):.0f} of {((((len(tasks)+batch_size-1)//batch_size)*batch_size)/4):.0f}\n\n\nWait until you see the \"Done!\" message.")
-        
-    #    batch = tasks[i:i + batch_size]
-
-    #    batch_timer_start = time.time()
-    #    await asyncio.gather(*batch)
-    #    batch_timer_end = time.time()
-
-    #    batch_time = batch_timer_end - batch_timer_start
-
-        #clear_screen()
-    #    processedChunks += len(batch)
-    #    print(f"Processed {len(batch)} mega-chunks in parallel which took {(batch_time / 60):.0f} minutes and {(batch_time % 60):02.0f} seconds")
-
+    
     await asyncio.gather(*tasks)
 
     processedChunks = len(tasks)
