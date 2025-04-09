@@ -11,9 +11,10 @@ import platform
 from concurrent.futures import ThreadPoolExecutor
 import time
 import re
-from multiprocessing import Process, Queue, cpu_count
+import multiprocessing
 import urllib.request
 import json
+import traceback
 
 USER_AGENT = "pmfun naziFinder 0.10.0 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
@@ -101,8 +102,8 @@ def convert_to_indexed(image, lut):
     return indexed_image
 
 # Gets the megachunk
-async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, end_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batchSize, queue):
-    print(f"Processing mega-chunk #{taskNumber} at ({x}, {y}) with width {w} and height {h}...")
+async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batchSize, queue):
+    print(f"Loading mega-chunk #{taskNumber} at ({x}, {y}) with width {w} and height {h}...")
     
     canvas_size = canvas["size"] # The size of the megachunk
     bkg = tuple(canvas['colors'][0]) # The background color
@@ -119,7 +120,7 @@ async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, end_date, t
     tasks = []
     async with aiohttp.ClientSession() as session:
 
-        print(f"Getting megachunk #{taskNumber}...")
+        #print(f"Fetching megachunk #{taskNumber}...")
         # Gets megachunk
         image = PIL.Image.new('RGBA', (w, h)) # Fallback. If neither day loads, it matches on a blank megchunk
         for iy in range(yc, hc + 1):
@@ -149,12 +150,14 @@ async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, end_date, t
                     offy = iy * 256 + offset - y
                     tasks.append(fetch_chunk(session, url, offx, offy, image, bkg, True))
             await asyncio.gather(*tasks)
-        queue.put((taskNumber, image))
-        print(f"Fetched megachunk #{taskNumber}")
+        queue.put((taskNumber, searchable_colors_BGR, image, swastikas_swas, swastikas_name, display_length, canvas_id, x, y))
+        print(f"Loaded megachunk #{taskNumber} into the queue")
         #image.close()
 
-async def image_processing(taskNumber, searchable_colors_BGR, image, swastikas_swas, swastikas_name):
-    print(f"#{taskNumber} mapping LUT")
+async def image_processing(processName, taskNumber, searchable_colors_BGR, image, swastikas_swas, swastikas_name, display_length, canvas_id, x, y):
+    print(f"{processName} mapping LUT of megachunk #{taskNumber}")
+
+    processing_timer_start = time.time()
 
     lut = {} # Custom Look-Up Table
 
@@ -176,7 +179,7 @@ async def image_processing(taskNumber, searchable_colors_BGR, image, swastikas_s
         50: "Grass Green 1", 51: "Grass Green 2", 52: "Light Green"
     }
 
-    print(f"#{taskNumber} Loading canvas")
+    print(f"{processName} Loading canvas image for megachunk #{taskNumber}")
     
     # Call and load the images
     bigCanvasImage = np.array(image)
@@ -186,7 +189,7 @@ async def image_processing(taskNumber, searchable_colors_BGR, image, swastikas_s
     canvasImage = np.uint8(canvasImage)
 
     for currentColor in searchable_colors_BGR:
-        print(f"#{taskNumber} Swapping color to {currentColor}...")
+        #print(f"{processName} Swapping color to {currentColor} for megachunk #{taskNumber}...")
 
         # Converts the current color to the LUT index
         currentColor = get_lut_index(lut, currentColor)
@@ -197,7 +200,7 @@ async def image_processing(taskNumber, searchable_colors_BGR, image, swastikas_s
         swastikas = zip(swastikas_swas, swastikas_name)
         swastasks = []
         for swastika, swastika_name in swastikas:
-            print(f"#{taskNumber} swapping swastika to {swastika_name}...")
+            #print(f"{processName} swapping swastika to {swastika_name} for megachunk #{taskNumber}...")
             swastika = convert_to_indexed(swastika, lut) # Convert the swastika template using the LUT
 
             # If the template is larger than the megachunk, we just ignore the megachunk
@@ -212,20 +215,27 @@ async def image_processing(taskNumber, searchable_colors_BGR, image, swastikas_s
 
                 threshold = 1
                 swastikaLocations = np.where(matchTemplateResult >= threshold)
-                print(f"#{taskNumber} writting...")
-                for X_Y_Pair in zip(*swastikaLocations[::-1]):
-                    swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
-                    #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
-                    #cv2.waitKey(0)
-                    #cv2.destroyAllWindows()
-                    #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
-                    detectedName = f"{lutColorDictionary[currentColor]} {swastika_name}"
-                    async with file_lock:
-                        with open("swastikaList.txt", "a") as f:
-                            f.write(f"{detectedName:<{display_length}} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
 
-# Function to process the image in chunks of 2000 pixels
-async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_width, image_height, start_date, end_date, chunk_size, queue):
+                if swastikaLocations[0].size > 0:
+                    processNumber = processName.split('-')[-1]
+                    print(f"{processName} writting in \'./swastikaList{processNumber}.txt\'")
+
+                    async with file_lock:
+                        with open(f"swastikaList{processNumber}.txt", "a") as swasList:
+                            for X_Y_Pair in zip(*swastikaLocations[::-1]):
+                                swastika_X, swastika_Y = X_Y_Pair # X & Y relative to the megachunk
+                                #cv2.imshow('Image', cv2.resize(canvasImage[swastika_Y-1:swastika_Y + 6, swastika_X-1:swastika_X + 6], (500, 500), interpolation=cv2.INTER_NEAREST))
+                                #cv2.waitKey(0)
+                                #cv2.destroyAllWindows()
+                                #print(f"{lutColorDictionary[currentColor]} - https://pixmap.fun/#{canvas_id},{swastika_X},{swastika_Y},36")
+                                detectedName = f"{lutColorDictionary[currentColor]} {swastika_name}"
+                                swasList.write(f"{detectedName:<{display_length}} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
+    processing_timer_end = time.time()
+    processing_time = processing_timer_end - processing_timer_start
+    print(f"{processName} has finished loading megachunk #{taskNumber} in {(processing_time / 60):.0f} minutes and {(processing_time % 60):02.0f} seconds")
+
+# Function to process the image in chunks
+async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_width, image_height, start_date, chunk_size, queue):
     tasks = []
     swastikas_swas = []
     swastikas_name = []
@@ -233,9 +243,9 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
     taskNumber = 0
 
     semaphore = asyncio.Semaphore(4)
-    async def semaphoreMegaChunkProcessor(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue):
+    async def semaphoreMegaChunkProcessor(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue):
         async with semaphore:
-            return await fetch_megachunk(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue)
+            return await fetch_megachunk(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue)
 
     # (Swastika) colors to look for
     searchable_colors_RGB = [
@@ -294,32 +304,36 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
             chunk_height = min(chunk_size, image_height - y)  # Avoid going beyond the image height
 
             # Call the async get_area function for the current chunk
-            tasks.append(asyncio.create_task(semaphoreMegaChunkProcessor(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, end_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue)))
+            tasks.append(asyncio.create_task(semaphoreMegaChunkProcessor(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue)))
     
-    total_timer_start = time.time()
+    fetch_timer_start = time.time()
     processedChunks = 0
     
     await asyncio.gather(*tasks)
 
     processedChunks = len(tasks)
     
-    total_timer_end = time.time()
-    total_time = total_timer_end - total_timer_start
-    print(f"Processed all {processedChunks} mega-chunks ({processedChunks*10*(chunk_size/256):.0f} chunks) in {(total_time / 60):.0f} minutes and {(total_time % 60):02.0f} seconds")
-    print("All swastikas have been saved to \"swastikaList.txt\"")
-    print(f"-----  Here are the swastikas found  -----")
-
-    with open("swastikaList.txt", "r") as file:
-        for line in file:
-            print(line, end="")  # end="" prevents double newlines
+    fetch_timer_end = time.time()
+    fetch_time = fetch_timer_end - fetch_timer_start
+    print(f"Loaded all {processedChunks} mega-chunks ({processedChunks*10*(chunk_size/256):.0f} chunks) into the queue in {(fetch_time / 60):.0f} minutes and {(fetch_time % 60):02.0f} seconds")
             
-# Worker that just prints queue item size (for testing)
-def queue_reader(queue):
+def queue_worker(queue):
     while True:
-        item = queue.get()
-        if item is None:
-            break
-        print(f"Received mega chunk")
+        try:
+            queueTuple = queue.get()
+            if queueTuple is None:
+                break
+            
+            # Unpacks the tuple
+            taskNumber, searchable_colors_BGR, image, swastikas_swas, swastikas_name, display_length, canvas_id, x, y = queueTuple
+
+            print(f"{multiprocessing.current_process().name} received mega chunk #{taskNumber}")
+            asyncio.run(image_processing(multiprocessing.current_process().name, taskNumber, searchable_colors_BGR, image, swastikas_swas, swastikas_name, display_length, canvas_id, x, y))
+
+        except Exception as e:
+            print(f"An error occured: {e}")
+            traceback.print_exc()
+    print(f"Killed {multiprocessing.current_process().name}")
 
 def main():
     apime = fetchMe()
@@ -356,7 +370,6 @@ def main():
     start = [0, 0] #[-32768, -32768] # Hard coded to full canvas
     end = [10239, 10239]#[32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
-    end_date = datetime.date.today()
     x = int(start[0])
     y = int(start[1])
     w = int(end[0]) - x + 1
@@ -364,24 +377,72 @@ def main():
     if not os.path.exists('./templates'):
         os.mkdir('./templates')
 
-    with open("swastikaList.txt", 'w') as file:
-        pass
+    total_timer_start = time.time()
 
     #clear_screen()
+    try:
+
+        workerNumber = int(os.cpu_count()/2)
+
+        # Clears the lists
+        with open("swastikaList.txt", 'w') as file:
+            pass
+        for workerNum in range(workerNumber):
+            with open(f"swastikaList{workerNum+1}.txt", 'w') as file:
+                pass
     
-    queue = Queue()
+        queue = multiprocessing.Queue(maxsize=workerNumber)
 
-    # Start a simple reader process for testing
-    reader = Process(target=queue_reader, args=(queue,))
-    reader.start()
+        # Create 4 worker processes
+        workers = []
+        for _ in range(workerNumber):
+            process = multiprocessing.Process(target=queue_worker, args=(queue,))
+            process.start()
+            workers.append(process)
 
-    # Fetch chunks and fill queue
-    asyncio.run(process_image_in_chunks(canvas_id, canvas, x, y, w, h, start_date, end_date, 2560, queue))
+        # Fetch chunks and fill queue
+        asyncio.run(process_image_in_chunks(canvas_id, canvas, x, y, w, h, start_date, 2560, queue))
+        
+        # Signal the workers to stop
+        print("Poisoning the queue...")
+        for _ in range(workerNumber):
+            queue.put(None)
 
-    # Signal reader to stop
-    queue.put(None)
-    reader.join()
-    print("-----  Done!  -----")
+        # Wait for all the processes to finish
+        print("Waiting for Processes to die... \n(This is normal. Processes take longer than megachunk loaders)")
+        for worker in workers:
+            worker.join()
+
+        with open("swastikaList.txt", "w") as swasListAll:
+            for workerNum in range(workerNumber):
+                if os.path.exists(f'./swastikaList{workerNum+1}.txt'):
+                    with open(f'./swastikaList{workerNum+1}.txt', 'r') as swasList:
+                        swasListAll.write(swasList.read())
+        print("All swastikas have been saved to \"swastikaList.txt\"")
+        
+        total_timer_end = time.time()
+        total_time = total_timer_end - total_timer_start
+        print(f"Total time spent: {(total_time / 60):.0f} minutes and {(total_time % 60):02.0f} seconds")
+        print(f"-----  Here are the swastikas found  -----")
+        with open("swastikaList.txt", "r") as swasListAll:
+            for line in swasListAll:
+                print(line, end="")  # end="" prevents double newlines
+
+        print("-----  Done!  -----")
+    except Exception as e:
+        print(f"An error occured: {e}")
+        traceback.print_exc()
+
+        # Signal the workers to stop
+        # Empties the queue
+        print("Emptying the queue...")
+        while not queue.empty():
+            queue.get()
+        # Poisons the workers
+        print("Poisoning the queue...")
+        for _ in range(workerNumber):
+            queue.put(None)
+
 
 if __name__ == "__main__":
     main()
