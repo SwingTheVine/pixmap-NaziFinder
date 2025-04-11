@@ -16,7 +16,7 @@ import urllib.request
 import json
 import traceback
 
-USER_AGENT = "pmfun naziFinder 1.0.0 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 1.0.1 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -105,6 +105,8 @@ def convert_to_indexed(image, lut):
 async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batchSize, queue):
     print(f"Loading mega-chunk #{taskNumber} at ({x}, {y}) with width {w} and height {h}...")
     
+    print(canvas['size'])
+    
     canvas_size = canvas["size"] # The size of the megachunk
     bkg = tuple(canvas['colors'][0]) # The background color
     iter_date = start_date.strftime("%Y%m%d") # The date e.g. 20250408
@@ -115,6 +117,7 @@ async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, taskNumber,
     wc = (x + w - offset) // 256
     yc = (y - offset) // 256
     hc = (y + h - offset) // 256
+    print(f"Offset: {offset}\nxc: {xc}\nwc: {wc}\nyc: {yc}\nhc: {hc}")
 
     # Calls and loads the chunk
     tasks = []
@@ -232,7 +235,7 @@ async def image_processing(processName, taskNumber, searchable_colors_BGR, image
                                 swasList.write(f"{detectedName:<{display_length}} - https://pixmap.fun/#{canvas_id},{swastika_X + x},{swastika_Y + y},36\n")
     processing_timer_end = time.time()
     processing_time = processing_timer_end - processing_timer_start
-    print(f"{processName} has finished loading megachunk #{taskNumber} in {(processing_time / 60):.0f} minutes and {(processing_time % 60):02.0f} seconds")
+    print(f"{processName} has finished scanning megachunk #{taskNumber} in {(processing_time / 60):.0f} minutes and {(processing_time % 60):02.0f} seconds")
 
 # Function to process the image in chunks
 async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_width, image_height, start_date, chunk_size, queue):
@@ -294,14 +297,17 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
     display_length = 16 + longest_name
 
     batch_size = 4
+
+    print(f"{start_y}, {image_height}, {chunk_size}\n{start_x},{image_width},{chunk_size}")
     
     # Chunk dimensions: Calculate how many chunks we need based on the image dimensions
-    for y in range(start_y, image_height, chunk_size):
-        for x in range(start_x, image_width, chunk_size):
+    for y in range(start_y, image_height+start_y, chunk_size):
+        print(f"{y}")
+        for x in range(start_x, image_width+start_y, chunk_size):
             taskNumber += 1
             # Calculate the current chunk's width and height
-            chunk_width = min(chunk_size, image_width - x)  # Avoid going beyond the image width
-            chunk_height = min(chunk_size, image_height - y)  # Avoid going beyond the image height
+            chunk_width = min(chunk_size, (image_width+start_y) - x)  # Avoid going beyond the image width
+            chunk_height = min(chunk_size, (image_height+start_y) - y)  # Avoid going beyond the image height
 
             # Call the async get_area function for the current chunk
             tasks.append(asyncio.create_task(semaphoreMegaChunkProcessor(canvas_id, canvas, x, y, chunk_width, chunk_height, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batch_size, queue)))
@@ -367,8 +373,8 @@ def main():
         print("Can\'t get area for 3D canvas")
         return
 
-    start = [0, 0] #[-32768, -32768] # Hard coded to full canvas
-    end = [10239, 10239]#[32767, 32767] # Hard coded to full canvas
+    start = [30000, 30000] # Hard coded to full canvas
+    end = [32767, 32767] # Hard coded to full canvas
     start_date = datetime.date.today()
     x = int(start[0])
     y = int(start[1])
@@ -379,7 +385,7 @@ def main():
 
     total_timer_start = time.time()
 
-    clear_screen()
+    #clear_screen()
     print("-----     THIS MIGHT TAKE A WHILE     -----\n       Wait for the \"Done!\" message")
     try:
 
@@ -419,16 +425,16 @@ def main():
                 if os.path.exists(f'./swastikaList{workerNum+1}.txt'):
                     with open(f'./swastikaList{workerNum+1}.txt', 'r') as swasList:
                         swasListAll.write(swasList.read())
-        clear_screen()
+        #clear_screen()
         print("All swastikas have been saved to \"swastikaList.txt\"")
         
         total_timer_end = time.time()
         total_time = total_timer_end - total_timer_start
         print(f"Total time spent: {(total_time / 60):.0f} minutes and {(total_time % 60):02.0f} seconds")
         print(f"-----  Here are the swastikas found  -----")
-        with open("swastikaList.txt", "r") as swasListAll:
-            for line in swasListAll:
-                print(line, end="")  # end="" prevents double newlines
+        #with open("swastikaList.txt", "r") as swasListAll:
+        #    for line in swasListAll:
+        #        print(line, end="")  # end="" prevents double newlines
 
         print("-----  Done!  -----")
     except Exception as e:
