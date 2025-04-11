@@ -16,7 +16,7 @@ import urllib.request
 import json
 import traceback
 
-USER_AGENT = "pmfun naziFinder 1.0.1 " + ' '.join(sys.argv[1:])
+USER_AGENT = "pmfun naziFinder 1.0.2 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
 
@@ -105,8 +105,6 @@ def convert_to_indexed(image, lut):
 async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, taskNumber, searchable_colors_BGR, swastikas_swas, swastikas_name, display_length, batchSize, queue):
     print(f"Loading mega-chunk #{taskNumber} at ({x}, {y}) with width {w} and height {h}...")
     
-    print(canvas['size'])
-    
     canvas_size = canvas["size"] # The size of the megachunk
     bkg = tuple(canvas['colors'][0]) # The background color
     iter_date = start_date.strftime("%Y%m%d") # The date e.g. 20250408
@@ -117,7 +115,10 @@ async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, taskNumber,
     wc = (x + w - offset) // 256
     yc = (y - offset) // 256
     hc = (y + h - offset) // 256
-    print(f"Offset: {offset}\nxc: {xc}\nwc: {wc}\nyc: {yc}\nhc: {hc}")
+
+    if not ((offset <= y < offset*-1) and (offset <= x < offset*-1)):
+        print(f"WARNING: Mega-chunk #{taskNumber} at ({x}, {y}) is out of bounds! Skipping...")
+        return
 
     # Calls and loads the chunk
     tasks = []
@@ -140,7 +141,7 @@ async def fetch_megachunk(canvas_id, canvas, x, y, w, h, start_date, taskNumber,
         if clr is not None:
             tasks = []
 
-            print(f"The megachunk at ({x}, {y}) for today (the {int(iter_date[6:])}th) is faulty, using yesterday's (the {int(iter_date[6:])-1}th) megachunk instead.")
+            print(f"Megachunk #{taskNumber} at ({x}, {y}) for today (the {int(iter_date[6:])}th) is faulty, using yesterday's (the {int(iter_date[6:])-1}th) megachunk instead.")
             
             # Rolls back the date 1 day
             iter_date = iter_date[:6] + str(int(iter_date[6:])-1).zfill(2)
@@ -302,7 +303,6 @@ async def process_image_in_chunks(canvas_id, canvas, start_x, start_y, image_wid
     
     # Chunk dimensions: Calculate how many chunks we need based on the image dimensions
     for y in range(start_y, image_height+start_y, chunk_size):
-        print(f"{y}")
         for x in range(start_x, image_width+start_y, chunk_size):
             taskNumber += 1
             # Calculate the current chunk's width and height
@@ -374,7 +374,7 @@ def main():
         return
 
     start = [30000, 30000] # Hard coded to full canvas
-    end = [32767, 32767] # Hard coded to full canvas
+    end = [40000, 40000] # Hard coded to full canvas
     start_date = datetime.date.today()
     x = int(start[0])
     y = int(start[1])
@@ -416,7 +416,7 @@ def main():
             queue.put(None)
 
         # Wait for all the processes to finish
-        print("Waiting for Processes to die... \n(This is normal. Processes take longer than megachunk loaders)")
+        print("Waiting for Processes to die... \n(This is normal. Processes take longer than megachunk loaders)\n")
         for worker in workers:
             worker.join()
 
