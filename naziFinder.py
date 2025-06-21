@@ -16,6 +16,8 @@ import urllib.request
 import json
 import traceback
 
+# Original script (timelapse.py) made by hf
+
 USER_AGENT = "pmfun naziFinder 1.0.2 " + ' '.join(sys.argv[1:])
 PPFUN_URL = "https://pixmap.fun"
 PPFUN_STORAGE_URL = "https://backup.pixmap.fun"
