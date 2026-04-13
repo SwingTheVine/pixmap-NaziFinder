@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "C:\Users\Swing\Desktop\Projects\pixmap-NaziFinder\Wplace\consumer.py", line 271, in gpu_thread
+    batch_time_minutes, batch_time_seconds = divmod(batch_time_remainder)
+                                             ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+TypeError: divmod expected 2 arguments, got 1
+Traceback (most recent call last):
+  File "C:\Users\Swing\Desktop\Projects\pixmap-NaziFinder\Wplace\consumer.py", line 262, in gpu_thread
+    _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Swing\Desktop\Projects\pixmap-NaziFinder\Wplace\consumer.py", line 176, in _flush_batch
+    write_match(output_file, match_path, match_row, match_column)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Swing\Desktop\Projects\pixmap-NaziFinder\Wplace\consumer.py", line 35, in write_match
+    lat, lon = convert_coordinates(tile_x, tile_y, pixel_x, pixel_y)
+               ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Swing\Desktop\Projects\pixmap-NaziFinder\Wplace\consumer.py", line 50, in convert_coordinates
+    tile_x_fractional = tile_x + (pixel_x / tile_size)
+                        ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~
+TypeError: can only concatenate str (not "float") to str

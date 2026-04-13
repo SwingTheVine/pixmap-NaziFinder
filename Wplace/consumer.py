@@ -2,12 +2,13 @@ import os
 import cupy
 import math
 import time
+import traceback
 import numpy as np
 
 import config
 from debug import debug as _debug
 
-debugging_enabled = False
+_debugging_enabled = False
 
 # The sight of spaghetti code makes your stomach grumble.
 # You are filled with DETERMINATION.
@@ -179,15 +180,19 @@ def _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_
 
 # Debug wrapper
 def debug(*args, **kwargs):
-  if debugging_enabled:
-    _debug(*args, enabled = debugging_enabled, **kwargs)
+  global _debugging_enabled
+  if _debugging_enabled:
+    _debug(*args, enabled = _debugging_enabled, **kwargs)
   return
 
 # Spawns the GPU thread, and starts scanning images
 # Images only scan, provided there are a full batch of them, or a poison pill is observed
-def gpu_thread(queue, semaphore, templates, total_images):
+def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled):
 
   print("[gpu] Spawning GPU thread...")
+
+  global _debugging_enabled
+  _debugging_enabled = debugging_enabled
   
   batch_arrays = []
   batch_paths = []
@@ -202,67 +207,73 @@ def gpu_thread(queue, semaphore, templates, total_images):
   output_file = open(config.OUTPUT_FILE, "a", buffering=1)
   print(f"[gpu] Ready! Waiting for {config.BATCH_SIZE} available images.")
 
-  while True:
+  try:
 
-    queue_item = queue.get() # Retrieves an item from the queue
-    # If there are no items in the queue, the thread halts here
+    while True:
 
-    # If the queue item is a poison pill...
-    if queue_item is None:
+      queue_item = queue.get() # Retrieves an item from the queue
+      # If there are no items in the queue, the thread halts here
 
-      print("[gpu] GPU thread poisoned!")
+      # If the queue item is a poison pill...
+      if queue_item is None:
 
-      # If there are still items to scan
-      if batch_arrays:
+        print("[gpu] GPU thread poisoned!")
 
-        print("[gpu] Completing one last image scan before death...")
+        # If there are still items to scan
+        if batch_arrays:
 
-        # Scans the images in the partial batch
-        _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
-        break # Exit the while-loop
-    
-    # At this point, any queue item is (probably) an image
+          print("[gpu] Completing one last image scan before death...")
 
-    path, indexed = queue_item # Deconstruct the item
-
-    # Free/consume an item so that the queue has open space for more images
-    semaphore.release()
-
-    # Adds the queue item to the batch
-    batch_arrays.append(indexed)
-    batch_paths.append(path)
-
-    images_done += 1 # Increases the number of images done by 1
-    images_done_percent = (images_done / total_images) * 100
-
-    # Outputs 10% intervals, OR in test mode, every image
-    statement_output = f"[gpu] Buffered {images_done}/{total_images} images ({images_done_percent:.2f}%)"
-    if ((int(images_done_percent) % 10) == 0):
-      print(statement_output)
-    else:
-      debug(statement_output)
-    
-    debug(f"[gpu] Batch size now: {len(batch_arrays)}")
-
-    # If the batch is full...
-    if len(batch_arrays) == config.BATCH_SIZE:
-
-      debug(f"[gpu] Scanning a batch of {batch_arrays} images...")
-
-      batch_time_start = time.perf_counter()
+          # Scans the images in the partial batch
+          _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
+          break # Exit the while-loop
       
-      # Scans the batch
-      _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
+      # At this point, any queue item is (probably) an image
 
-      # Post-batch clean-up
-      batch_start_index += config.BATCH_SIZE
-      batch_arrays = []
-      batch_paths = []
+      path, indexed = queue_item # Deconstruct the item
 
-      batch_time_elapsed = time.perf_counter() - batch_time_start
-      batch_time_hours, batch_time_remainder = divmod(batch_time_elapsed, 3600)
-      batch_time_minutes, batch_time_seconds = divmod(batch_time_remainder)
-      debug(f"[gpu] Done scanning batch in {int(batch_time_hours):02d}:{int(batch_time_minutes):02d}:{batch_time_seconds:06.3f}.")
+      # Free/consume an item so that the queue has open space for more images
+      semaphore.release()
+
+      # Adds the queue item to the batch
+      batch_arrays.append(indexed)
+      batch_paths.append(path)
+
+      images_done += 1 # Increases the number of images done by 1
+      images_done_percent = (images_done / total_images) * 100
+
+      # Outputs 10% intervals, OR in test mode, every image
+      statement_output = f"[gpu] Buffered {images_done}/{total_images} images ({images_done_percent:.2f}%)"
+      if ((int(images_done_percent) % 10) == 0):
+        print(statement_output)
+      else:
+        debug(statement_output)
+      
+      debug(f"[gpu] Batch size now: {len(batch_arrays)}")
+
+      # If the batch is full...
+      if len(batch_arrays) == config.BATCH_SIZE:
+
+        debug(f"[gpu] Scanning a batch of {len(batch_arrays)} images...")
+
+        batch_time_start = time.perf_counter()
+        
+        # Scans the batch
+        _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
+
+        # Post-batch clean-up
+        batch_start_index += config.BATCH_SIZE
+        batch_arrays = []
+        batch_paths = []
+
+        batch_time_elapsed = time.perf_counter() - batch_time_start
+        batch_time_hours, batch_time_remainder = divmod(batch_time_elapsed, 3600)
+        batch_time_minutes, batch_time_seconds = divmod(batch_time_remainder, 60)
+        debug(f"[gpu] Done scanning batch in {int(batch_time_hours):02d}:{int(batch_time_minutes):02d}:{batch_time_seconds:06.3f}.")
+  
+  except Exception as e:
+    traceback.print_exc(file=output_file)
+    raise # Rethrow the exception
 
   output_file.close() # Exits the output file
   

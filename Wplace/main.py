@@ -123,7 +123,7 @@ if __name__ == "__main__":
 
   try:
     # Starts GPU thread
-    gpu_thread(queue, semaphore, templates, len(all_paths))
+    gpu_thread(queue, semaphore, templates, len(all_paths), config.DEBUGGING_ENABLED)
   finally:
     worker_thread.join()
     print("FINISHED")

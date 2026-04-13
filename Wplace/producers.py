@@ -125,7 +125,7 @@ def is_worth_scanning(image_array: np.ndarray) -> bool:
 # Debug wrapper
 def debug(*args, **kwargs):
   if _debugging_enabled:
-    _debug(*args, enabled = _debugging_enabled, **kwargs)
+    _debug(*args, enabled = False, **kwargs)
   return
 
 # Spawns worker threads
