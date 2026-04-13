@@ -17,6 +17,7 @@ WORKER_COUNT       = 5 # Number of workers to spawn
 BATCH_SIZE         = 80 # GPU batch size
 SHOULD_RESTART     = False # Should the checkpoint file be used to restart where the script last left off?
 DEBUGGING_ENABLED  = False # Is the script running in test mode?
+MINIMUM_BYTE_SIZE  = 230 # Ignores any tile with a file size that is less than or equal to this value
 
 # Default variable declarations, but the user can NOT specify changes
 MAX_QUEUE_SIZE     = BATCH_SIZE * 2 # Semaphore limit

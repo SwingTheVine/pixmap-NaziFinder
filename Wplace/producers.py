@@ -5,7 +5,7 @@ from multiprocessing import Value
 from PIL import Image
 
 import config
-from Wplace.debug import debug
+from debug import debug
 
 _queue = None
 _semaphore = None
@@ -18,7 +18,9 @@ _worker_counter = None # Static
 # Obtains the queue and semaphore and binds them to local variables without making a copy
 def _worker_init(queue, semaphore, counter, minimum_pixels):
   
-  global _queue, _semaphore, _worker_id, _worker_counter
+  # Declares that these are class-variables, not local
+  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels
+
   _queue = queue
   _semaphore = semaphore
   _minimum_pixels = minimum_pixels
@@ -35,6 +37,12 @@ def _worker_task(image_path):
   _semaphore.acquire() # Halts the worker if the queue is full
   # If this comment line is reached, the queue has space
 
+  # If the template file size is too small, we skip it
+  if os.path.getsize(image_path) <= config.MINIMUM_BYTE_SIZE:
+    _semaphore.release() # Free/consume the image
+    debug(f"[{_worker_id}] Skipped transparent tile ({parent}, {name})")
+    return # Early-exit
+
   # Opens the image as RGBA
   image_RGBA = Image.open(image_path).convert("RGBA")
 
@@ -44,7 +52,7 @@ def _worker_task(image_path):
   # Skip the tile if it is too transparent to contain a template
   if not is_worth_scanning(image_array):
     _semaphore.release() # Free/consume the image
-    debug(f"[{_worker_id}] Skipped tile ({parent}, {name})")
+    debug(f"[{_worker_id}] Skipped impossible tile ({parent}, {name})")
     return # Early-exit
 
   # Converts the Uint8 array to a LUT

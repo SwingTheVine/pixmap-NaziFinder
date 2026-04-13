@@ -5,7 +5,7 @@ from multiprocessing import Semaphore, Queue
 from PIL import Image
 
 import config
-from Wplace.debug import debug
+from debug import debug
 
 minimum_pixels = 10^6 # Minimum number of pixels possible across all templates
 

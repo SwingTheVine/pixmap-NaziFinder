@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 import config
-from Wplace.debug import debug
+from debug import debug
 
 # The sight of spaghetti code makes your stomach grumble.
 # You are filled with DETERMINATION.
