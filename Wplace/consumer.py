@@ -29,8 +29,8 @@ def save_checkpoint(index: int):
 # Appends a match to the output file
 def write_match(output_file, tile_path: str, pixel_y: int, pixel_x: int):
   
-  tile_x = os.path.basename(os.path.dirname(tile_path))
-  tile_y = os.path.splitext(os.path.basename(tile_path))[0]
+  tile_x = int(os.path.basename(os.path.dirname(tile_path)))
+  tile_y = int(os.path.splitext(os.path.basename(tile_path))[0])
 
   lat, lon = convert_coordinates(tile_x, tile_y, pixel_x, pixel_y)
 
@@ -226,7 +226,8 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled):
 
           # Scans the images in the partial batch
           _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
-          break # Exit the while-loop
+      
+        break # Exit the while-loop
       
       # At this point, any queue item is (probably) an image
 

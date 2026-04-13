@@ -7,7 +7,7 @@ from PIL import Image
 import config
 from debug import debug
 
-minimum_pixels = 10^6 # Minimum number of pixels possible across all templates
+minimum_pixels = 1000000 # Minimum number of pixels possible across all templates
 
 # Converts one template to offsets
 def load_template_offsets(template_path: str):

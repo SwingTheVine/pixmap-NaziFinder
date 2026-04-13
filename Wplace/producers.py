@@ -11,7 +11,7 @@ from debug import debug as _debug
 _queue = None
 _semaphore = None
 _worker_id = None
-_minimum_pixels = 10^6
+_minimum_pixels = 1000000
 _debugging_enabled = False
 
 _worker_counter = None # Static
@@ -53,7 +53,9 @@ def _worker_task(image_path):
   # If this comment line is reached, the queue has space
 
   # Shutdown might have been requested while waiting for queue space to open, so we check again
-  if _shutdown.value: return
+  if _shutdown.value: 
+    _semaphore.release()
+    return
 
   parent = os.path.basename(os.path.dirname(image_path)) # Tile X
   name = os.path.splitext(os.path.basename(image_path))[0] # Tile Y
@@ -125,7 +127,7 @@ def is_worth_scanning(image_array: np.ndarray) -> bool:
 # Debug wrapper
 def debug(*args, **kwargs):
   if _debugging_enabled:
-    _debug(*args, enabled = False, **kwargs)
+    _debug(*args, enabled = _debugging_enabled, **kwargs)
   return
 
 # Spawns worker threads
@@ -155,8 +157,6 @@ def workers(all_paths, queue, semaphore, minimum_pixels, shutdown):
 
     debug("Terminating worker pool...")
     shutdown.value = True
-    pool.terminate()
-    pool.join()
 
     print("Killing GPU thread...")
 
