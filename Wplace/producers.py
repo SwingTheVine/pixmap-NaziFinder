@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import signal
+import traceback
 from multiprocessing import Pool
 from multiprocessing import Value
 from PIL import Image
@@ -14,24 +15,26 @@ _worker_id = None
 _minimum_pixels = 1000000
 _debugging_enabled = False
 
-_worker_counter = None # Static
-_shutdown = None # Static
+_skipped_tiles = None # Shared
+_worker_counter = None # Shared
+_shutdown = None # Shared
 
 # Runs once when the worker is spawned
 # Obtains the queue and semaphore and binds them to local variables without making a copy
-def _worker_init(queue, semaphore, counter, minimum_pixels, debugging_enabled, shutdown):
+def _worker_init(queue, semaphore, counter, minimum_pixels, debugging_enabled, shutdown, skipped_tiles):
 
   # Ignores SIGINT in worker threads
   signal.signal(signal.SIGINT, signal.SIG_IGN)
 
   # Declares that these are class-variables, not local
-  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels, _debugging_enabled, _shutdown
+  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels, _debugging_enabled, _shutdown, _skipped_tiles
 
   _queue = queue
   _semaphore = semaphore
   _minimum_pixels = minimum_pixels
   _debugging_enabled = debugging_enabled
   _shutdown = shutdown
+  _skipped_tiles = skipped_tiles
 
   # Increments the worker ID every time a worker is spawned
   with counter.get_lock():
@@ -49,11 +52,14 @@ def _worker_task(image_path):
 
   # Otherwise, continue
 
+  global _skipped_tiles
+
   _semaphore.acquire() # Halts the worker if the queue is full
   # If this comment line is reached, the queue has space
 
   # Shutdown might have been requested while waiting for queue space to open, so we check again
   if _shutdown.value: 
+    _skipped_tiles.value += 1
     _semaphore.release()
     return
 
@@ -65,6 +71,7 @@ def _worker_task(image_path):
 
     # If the template file size is too small, we skip it
     if os.path.getsize(image_path) <= config.MINIMUM_BYTE_SIZE:
+      _skipped_tiles.value += 1
       _semaphore.release() # Free/consume the image
       debug(f"[{_worker_id}] Skipped transparent tile ({parent}, {name})")
       return # Early-exit
@@ -77,6 +84,7 @@ def _worker_task(image_path):
 
     # Skip the tile if it is too transparent to contain a template
     if not is_worth_scanning(image_array):
+      _skipped_tiles.value += 1
       _semaphore.release() # Free/consume the image
       debug(f"[{_worker_id}] Skipped impossible tile ({parent}, {name})")
       return # Early-exit
@@ -87,8 +95,9 @@ def _worker_task(image_path):
     _queue.put((image_path, image_indexed)) # Adds the image to the queue
     
     debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
-    
+
   except Exception:
+    _skipped_tiles.value += 1
     _semaphore.release()
     raise
 
@@ -136,7 +145,7 @@ def debug(*args, **kwargs):
   return
 
 # Spawns worker threads
-def workers(all_paths, queue, semaphore, minimum_pixels, shutdown):
+def workers(all_paths, queue, semaphore, minimum_pixels, shutdown, skipped_tiles):
   # Also kills the GPU thread
 
   print("Spawning workers...")
@@ -150,13 +159,21 @@ def workers(all_paths, queue, semaphore, minimum_pixels, shutdown):
     with Pool(
       processes = config.WORKER_COUNT,
       initializer = _worker_init,
-      initargs = (queue, semaphore, counter, minimum_pixels, config.DEBUGGING_ENABLED, shutdown)
+      initargs = (queue, semaphore, counter, minimum_pixels, config.DEBUGGING_ENABLED, shutdown, skipped_tiles)
     ) as pool:
-      for _ in pool.imap_unordered(_worker_task, all_paths):
+      for result in pool.imap_unordered(_worker_task, all_paths):
         if shutdown.value:
           pool.terminate()
           break
     # The code will halt here until all canvas tiles are put in the queue
+
+  except Exception as e:
+
+    print(e)
+
+    # Outputs the stack trace to the output file if in debug mode
+    if _debugging_enabled: traceback.print_exc(file=config.OUTPUT_FILE)
+    else: traceback.print_exc()
 
   finally:
 

@@ -188,7 +188,7 @@ def debug(*args, **kwargs):
 
 # Spawns the GPU thread, and starts scanning images
 # Images only scan, provided there are a full batch of them, or a poison pill is observed
-def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled):
+def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, skipped_tiles):
 
   print("[gpu] Spawning GPU thread...")
 
@@ -242,10 +242,10 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled):
       batch_paths.append(path)
 
       images_done += 1 # Increases the number of images done by 1
-      images_done_percent = (images_done / total_images) * 100
+      images_done_percent = (images_done / (total_images - skipped_tiles.value)) * 100
 
       # Outputs 10% intervals, OR in test mode, every image
-      statement_output = f"[gpu] Buffered {images_done}/{total_images} images ({images_done_percent:.2f}%)"
+      statement_output = f"[gpu] Buffered {images_done}/{total_images - skipped_tiles.value} images ({images_done_percent:.2f}%)"
 
       # Handles printing debug statements, or prints normally every 10%
       global _last_printed_milestone
