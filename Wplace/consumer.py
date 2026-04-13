@@ -1,10 +1,13 @@
 import os
 import cupy
 import math
+import time
 import numpy as np
 
 import config
-from debug import debug
+from debug import debug as _debug
+
+debugging_enabled = False
 
 # The sight of spaghetti code makes your stomach grumble.
 # You are filled with DETERMINATION.
@@ -174,9 +177,17 @@ def _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_
   # Updates the checkpoint
   save_checkpoint(batch_start_index + len(batch_arrays))
 
+# Debug wrapper
+def debug(*args, **kwargs):
+  if debugging_enabled:
+    _debug(*args, enabled = debugging_enabled, **kwargs)
+  return
+
 # Spawns the GPU thread, and starts scanning images
 # Images only scan, provided there are a full batch of them, or a poison pill is observed
 def gpu_thread(queue, semaphore, templates, total_images):
+
+  print("[gpu] Spawning GPU thread...")
   
   batch_arrays = []
   batch_paths = []
@@ -189,7 +200,7 @@ def gpu_thread(queue, semaphore, templates, total_images):
 
   # Opens the output file
   output_file = open(config.OUTPUT_FILE, "a", buffering=1)
-  debug(f"[gpu] Ready! Waiting for {config.BATCH_SIZE} available images.")
+  print(f"[gpu] Ready! Waiting for {config.BATCH_SIZE} available images.")
 
   while True:
 
@@ -231,8 +242,14 @@ def gpu_thread(queue, semaphore, templates, total_images):
     else:
       debug(statement_output)
     
+    debug(f"[gpu] Batch size now: {len(batch_arrays)}")
+
     # If the batch is full...
     if len(batch_arrays) == config.BATCH_SIZE:
+
+      debug(f"[gpu] Scanning a batch of {batch_arrays} images...")
+
+      batch_time_start = time.perf_counter()
       
       # Scans the batch
       _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
@@ -241,6 +258,11 @@ def gpu_thread(queue, semaphore, templates, total_images):
       batch_start_index += config.BATCH_SIZE
       batch_arrays = []
       batch_paths = []
+
+      batch_time_elapsed = time.perf_counter() - batch_time_start
+      batch_time_hours, batch_time_remainder = divmod(batch_time_elapsed, 3600)
+      batch_time_minutes, batch_time_seconds = divmod(batch_time_remainder)
+      debug(f"[gpu] Done scanning batch in {int(batch_time_hours):02d}:{int(batch_time_minutes):02d}:{batch_time_seconds:06.3f}.")
 
   output_file.close() # Exits the output file
   

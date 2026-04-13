@@ -1,11 +1,17 @@
 import sys
 import cupy
 import argparse
+import signal
+import threading
+from multiprocessing import Value
 
 import config
 from debug import debug
 from startup import startup
 from producers import workers
+from consumer import gpu_thread
+
+_shutdown = Value("b", False)
 
 # Setup for CLI flags
 def parse_args():
@@ -91,7 +97,13 @@ def gpu_out() -> list:
   
   return gpu_list # Return the list
 
+def _handle_interrupt(sig, frame):
+  print("\nInterrupt recieved. Shutting down...")
+  _shutdown.value = True
+
 if __name__ == "__main__":
+
+  signal.signal(signal.SIGINT, _handle_interrupt)
   
   # Manages CLI flags, and overrides defaults with user-specified flags
   args = parse_args() # If no flags were used, the program exists on this line
@@ -103,7 +115,15 @@ if __name__ == "__main__":
   debug(f"Minimum possible pixels: {minimum_pixels}")
 
   # Starts the workers/producers
-  workers(all_paths, queue, semaphore, minimum_pixels)
+  worker_thread = threading.Thread(
+    target = workers,
+    args = (all_paths, queue, semaphore, minimum_pixels, _shutdown)
+  )
+  worker_thread.start()
 
-  # GPU thread goes here
-
+  try:
+    # Starts GPU thread
+    gpu_thread(queue, semaphore, templates, len(all_paths))
+  finally:
+    worker_thread.join()
+    print("FINISHED")
