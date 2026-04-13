@@ -1,0 +1,93 @@
+import os
+import numpy as np
+import multiprocessing as mp
+from PIL import Image
+
+import config
+from debug import debug
+
+_queue = None
+_semaphore = None
+_worker_id = None
+
+_worker_counter = None # Static
+
+# Runs once when the worker is spawned
+# Obtains the queue and semaphore and binds them to local variables without making a copy
+def _worker_init(queue, semaphore, counter):
+  
+  global _queue, _semaphore, _worker_id, _worker_counter
+  _queue = queue
+  _semaphore = semaphore
+
+  # Increments the worker ID every time a worker is spawned
+  with counter.get_lock():
+    _worker_id = counter.value
+    counter.value += 1
+
+# Runs once per image path
+# This function holds the worker's work
+def _worker_task(image_path):
+
+  _semaphore.acquire() # Halts the worker if the queue is full
+  # If this comment line is reached, the queue has space
+
+  # Opens the image as RGBA
+  image_RGBA = Image.open(image_path).convert("RGBA")
+
+  # Converts the image to a Uint8 array
+  image_array = np.array(image_RGBA, dtype = np.uint8)
+
+  # Converts the Uint8 array to a LUT
+  image_indexed = rgba_to_index(image_array)
+
+  _queue.put((image_path, image_indexed)) # Adds the image to the queue
+
+  parent = os.path.basename(os.path.dirname(image_path)) # Tile X
+  name = os.path.splitext(os.path.basename(image_path))[0] # Tile Y
+  
+  debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
+
+# Converts the palette to a LUT
+def rgba_to_index(arr: np.ndarray) -> np.ndarray:
+  """ Converts (H, W, 4) uint8 RGBA arrays into (H, W) uint8 index array
+    PRIMARY_COLOR    -> INDEX_PRIMARY    (64)
+    NONPRIMARY_COLOR -> INDEX_NONPRIMARY (65)
+    Everything else  -> INDEX_UNKNOWN    (255)
+  """
+
+  H, W, _ = arr.shape # Obtains the height and width of the array
+
+  # Creates a new array that is the same size, but filled with INDEX_UNKNOWN LUT numbers (255)
+  out = np.full((H, W), config.INDEX_UNKNOWN, dtype = np.uint8)
+
+  # Creates a mask array where True means that pixel color
+  # E.g. primary mask "True" is all primary color
+  primary_mask = np.all(arr == config.PRIMARY_COLOR, axis = -1)
+  nonprimary_mask = np.all(arr == config.NONPRIMARY_COLOR, axis = -1)
+
+  # Overrides pixels in the new array with a mask over the old array.
+  # E.g. All pixels that match on the mask will be brought over from the old array
+  #      Everything else will be 255
+  out[primary_mask] = config.INDEX_PRIMARY
+  out[nonprimary_mask] = config.INDEX_NONPRIMARY
+
+  return out # Returns the new array
+
+# Spawns worker threads
+def workers(all_paths, queue, semaphore):
+  # Also kills workers
+
+  counter = mp.Value("i", 0) # Shares this (i)nteger across all workers
+
+  # Starts the worker pool
+  with mp.Pool(
+    processes = config.WORKER_COUNT,
+    initializer = _worker_init,
+    initargs = (queue, semaphore, counter)
+  ) as pool:
+    pool.map(_worker_task, all_paths)
+  # It is implied that the code will halt here until the queue is empty
+
+  # Poisons the queue
+  queue.put(None)
