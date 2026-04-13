@@ -42,10 +42,10 @@ def parse_args():
 def apply_args(args):
 
   # If the user wants to list the usable GPU's
-  if args.gpu_list is not None:
+  if args.gpu_list == True:
 
     print("When using '--gpu' specify the number to the left.")
-    print("E.g. '3 | My GPU")
+    print("E.g. '3 | My GPU'")
     print("Should be --gpu 3")
     print("")
     print("GPU LIST")

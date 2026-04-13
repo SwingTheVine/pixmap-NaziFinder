@@ -5,71 +5,93 @@ from multiprocessing import Value
 from PIL import Image
 
 import config
-from debug import debug
 
 _queue = None
 _semaphore = None
 _worker_id = None
 _minimum_pixels = 10^6
+_debugging_enabled = False
 
 _worker_counter = None # Static
+_shutdown = None # Static
 
 # Runs once when the worker is spawned
 # Obtains the queue and semaphore and binds them to local variables without making a copy
-def _worker_init(queue, semaphore, counter, minimum_pixels):
-  
+def _worker_init(queue, semaphore, counter, minimum_pixels, debugging_enabled, shutdown):
+
   # Declares that these are class-variables, not local
-  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels
+  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels, _debugging_enabled, _shutdown
 
   _queue = queue
   _semaphore = semaphore
   _minimum_pixels = minimum_pixels
+  _debugging_enabled = debugging_enabled
+  _shutdown = shutdown
 
   # Increments the worker ID every time a worker is spawned
   with counter.get_lock():
     _worker_id = counter.value
     counter.value += 1
+  
+  debug(f"[{_worker_id}] Ready!")
 
 # Runs once per image path
 # This function holds the worker's work
 def _worker_task(image_path):
 
-  _semaphore.acquire() # Halts the worker if the queue is full
-  # If this comment line is reached, the queue has space
+  # If shutdown was request, kill the worker
+  if _shutdown.value: return
 
-  # If the template file size is too small, we skip it
-  if os.path.getsize(image_path) <= config.MINIMUM_BYTE_SIZE:
-    _semaphore.release() # Free/consume the image
-    debug(f"[{_worker_id}] Skipped transparent tile ({parent}, {name})")
-    return # Early-exit
+  # Otherwise, continue
+  try:
 
-  # Opens the image as RGBA
-  image_RGBA = Image.open(image_path).convert("RGBA")
+    _semaphore.acquire() # Halts the worker if the queue is full
+    # If this comment line is reached, the queue has space
 
-  # Converts the image to a Uint8 array
-  image_array = np.array(image_RGBA, dtype = np.uint8)
+    # Shutdown might have been requested while waiting for queue space to open, so we check again
+    if _shutdown.value: return
 
-  # Skip the tile if it is too transparent to contain a template
-  if not is_worth_scanning(image_array):
-    _semaphore.release() # Free/consume the image
-    debug(f"[{_worker_id}] Skipped impossible tile ({parent}, {name})")
-    return # Early-exit
+    parent = os.path.basename(os.path.dirname(image_path)) # Tile X
+    name = os.path.splitext(os.path.basename(image_path))[0] # Tile Y
 
-  # Converts the Uint8 array to a LUT
-  image_indexed = rgba_to_index(image_array)
+    debug(f"[{_worker_id}] Retrived tile ({parent}, {name})")
 
-  _queue.put((image_path, image_indexed)) # Adds the image to the queue
+    # If the template file size is too small, we skip it
+    if os.path.getsize(image_path) <= config.MINIMUM_BYTE_SIZE:
+      _semaphore.release() # Free/consume the image
+      debug(f"[{_worker_id}] Skipped transparent tile ({parent}, {name})")
+      return # Early-exit
 
-  parent = os.path.basename(os.path.dirname(image_path)) # Tile X
-  name = os.path.splitext(os.path.basename(image_path))[0] # Tile Y
-  
-  debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
+    # Opens the image as RGBA
+    image_RGBA = Image.open(image_path).convert("RGBA")
+
+    # Converts the image to a Uint8 array
+    image_array = np.array(image_RGBA, dtype = np.uint8)
+
+    # Skip the tile if it is too transparent to contain a template
+    if not is_worth_scanning(image_array):
+      _semaphore.release() # Free/consume the image
+      debug(f"[{_worker_id}] Skipped impossible tile ({parent}, {name})")
+      return # Early-exit
+
+    # Converts the Uint8 array to a LUT
+    image_indexed = rgba_to_index(image_array)
+
+    _queue.put((image_path, image_indexed)) # Adds the image to the queue
+    
+    debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
+
+  except KeyboardInterrupt:
+    debug(f"[{_worker_id}] Interrupted by user! Killing thread...")
+    _shutdown.value = True # A shutdown was requested, so we request the workers to stop
+    _semaphore.release()
+    return
 
 # Converts the palette to a LUT
 def rgba_to_index(arr: np.ndarray) -> np.ndarray:
   """ Converts (H, W, 4) uint8 RGBA arrays into (H, W) uint8 index array
-    PRIMARY_COLOR    -> INDEX_PRIMARY    (64)
-    NONPRIMARY_COLOR -> INDEX_NONPRIMARY (65)
+    COLOR_PRIMARY    -> INDEX_PRIMARY    (64)
+    COLOR_NONPRIMARY -> INDEX_NONPRIMARY (65)
     Everything else  -> INDEX_UNKNOWN    (255)
   """
 
@@ -80,8 +102,8 @@ def rgba_to_index(arr: np.ndarray) -> np.ndarray:
 
   # Creates a mask array where True means that pixel color
   # E.g. primary mask "True" is all primary color
-  primary_mask = np.all(arr == config.PRIMARY_COLOR, axis = -1)
-  nonprimary_mask = np.all(arr == config.NONPRIMARY_COLOR, axis = -1)
+  primary_mask = np.all(arr == config.COLOR_PRIMARY, axis = -1)
+  nonprimary_mask = np.all(arr == config.COLOR_NONPRIMARY, axis = -1)
 
   # Overrides pixels in the new array with a mask over the old array.
   # E.g. All pixels that match on the mask will be brought over from the old array
@@ -101,25 +123,43 @@ def is_worth_scanning(image_array: np.ndarray) -> bool:
   # Return true if the image contains AT LEAST enough pixels to match a template
   return opaque_pixels >= _minimum_pixels
 
+# Debug
+def debug(*args, **kwargs):
+  if _debugging_enabled:
+    print(*args, **kwargs)
+  return
+
 # Spawns worker threads
 def workers(all_paths, queue, semaphore, minimum_pixels):
   # Also kills the GPU thread
 
   print("Spawning workers...")
-  debug(f"Workers IDs are 0-{config.WORKER_COUNT - 1}")
+  debug(f"Workers IDs are 1-{config.WORKER_COUNT}")
 
-  counter = Value("i", 0) # Shares this (i)nteger across all workers
+  counter = Value("i", 1) # Shares this (i)nteger across all workers
+  shutdown = Value("b", False) # Shares this (b)oolean across all workers
 
-  # Starts the worker pool
-  with Pool(
-    processes = config.WORKER_COUNT,
-    initializer = _worker_init,
-    initargs = (queue, semaphore, counter, minimum_pixels)
-  ) as pool:
-    pool.map(_worker_task, all_paths)
-  # The code will halt here until all canvas tiles are put in the queue
+  try:
 
-  print("Killing GPU thread...")
+    # Starts the worker pool
+    with Pool(
+      processes = config.WORKER_COUNT,
+      initializer = _worker_init,
+      initargs = (queue, semaphore, counter, minimum_pixels, config.DEBUGGING_ENABLED, shutdown)
+    ) as pool:
+      pool.map(_worker_task, all_paths)
+    # The code will halt here until all canvas tiles are put in the queue
 
-  # Poisons the queue
-  queue.put(None)
+  except KeyboardInterrupt:
+
+    debug("Workers interrupted by user! Terminating worker pool...")
+    shutdown.value = True
+    pool.terminate()
+    pool.join()
+
+  finally:
+
+    print("Killing GPU thread...")
+
+    # Poisons the queue
+    queue.put(None)

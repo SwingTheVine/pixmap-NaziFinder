@@ -108,6 +108,8 @@ def startup():
       templates.append((primary_offsets, nonprimary_offsets))
       debug(f"│├─ {template_file}: {len(primary_offsets)} primary, {len(nonprimary_offsets)} non-primary pixels")
 
+      global minimum_pixels # Declares that these variables are class-variables
+
       # Minimum pixel variable will contain the smallest
       if len(primary_offsets): minimum_pixels = min(len(primary_offsets), minimum_pixels)
       if len(nonprimary_offsets): minimum_pixels = min(len(nonprimary_offsets), minimum_pixels)
