@@ -57,35 +57,40 @@ def _worker_task(image_path):
     _semaphore.release()
     return
 
-  parent = os.path.basename(os.path.dirname(image_path)) # Tile X
-  name = os.path.splitext(os.path.basename(image_path))[0] # Tile Y
+  try:
+    parent = os.path.basename(os.path.dirname(image_path)) # Tile X
+    name = os.path.splitext(os.path.basename(image_path))[0] # Tile Y
 
-  debug(f"[{_worker_id}] Retrived tile ({parent}, {name})")
+    debug(f"[{_worker_id}] Retrived tile ({parent}, {name})")
 
-  # If the template file size is too small, we skip it
-  if os.path.getsize(image_path) <= config.MINIMUM_BYTE_SIZE:
-    _semaphore.release() # Free/consume the image
-    debug(f"[{_worker_id}] Skipped transparent tile ({parent}, {name})")
-    return # Early-exit
+    # If the template file size is too small, we skip it
+    if os.path.getsize(image_path) <= config.MINIMUM_BYTE_SIZE:
+      _semaphore.release() # Free/consume the image
+      debug(f"[{_worker_id}] Skipped transparent tile ({parent}, {name})")
+      return # Early-exit
 
-  # Opens the image as RGBA
-  image_RGBA = Image.open(image_path).convert("RGBA")
+    # Opens the image as RGBA
+    image_RGBA = Image.open(image_path).convert("RGBA")
 
-  # Converts the image to a Uint8 array
-  image_array = np.array(image_RGBA, dtype = np.uint8)
+    # Converts the image to a Uint8 array
+    image_array = np.array(image_RGBA, dtype = np.uint8)
 
-  # Skip the tile if it is too transparent to contain a template
-  if not is_worth_scanning(image_array):
-    _semaphore.release() # Free/consume the image
-    debug(f"[{_worker_id}] Skipped impossible tile ({parent}, {name})")
-    return # Early-exit
+    # Skip the tile if it is too transparent to contain a template
+    if not is_worth_scanning(image_array):
+      _semaphore.release() # Free/consume the image
+      debug(f"[{_worker_id}] Skipped impossible tile ({parent}, {name})")
+      return # Early-exit
 
-  # Converts the Uint8 array to a LUT
-  image_indexed = rgba_to_index(image_array)
+    # Converts the Uint8 array to a LUT
+    image_indexed = rgba_to_index(image_array)
 
-  _queue.put((image_path, image_indexed)) # Adds the image to the queue
-  
-  debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
+    _queue.put((image_path, image_indexed)) # Adds the image to the queue
+    
+    debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
+    
+  except Exception:
+    _semaphore.release()
+    raise
 
 
 # Converts the palette to a LUT

@@ -80,10 +80,12 @@ def apply_args(args):
   if args.cpoint_file is not None: config.CHECKPOINT_FILE = args.cpoint_file
   if args.template_dir is not None: config.TEMPLATE_DIRECTORY = args.template_dir
   if args.workers is not None: config.WORKER_COUNT = args.workers
-  if args.batch_size is not None: config.BATCH_SIZE = args.batch_size
   if args.min_tile_size is not None: config.MINIMUM_BYTE_SIZE = args.min_tile_size
   if args.restart is not None: config.SHOULD_RESTART = args.restart
   if args.gpu is not None: config.GPU_INDEX = args.gpu
+  if args.batch_size is not None:
+    config.BATCH_SIZE = args.batch_size
+    config.MAX_QUEUE_SIZE = config.BATCH_SIZE * 2
 
 # Returns a list of usable GPUs
 def gpu_out() -> list:

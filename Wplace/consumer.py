@@ -9,6 +9,7 @@ import config
 from debug import debug as _debug
 
 _debugging_enabled = False
+_last_printed_milestone = -1
 
 # The sight of spaghetti code makes your stomach grumble.
 # You are filled with DETERMINATION.
@@ -35,7 +36,7 @@ def write_match(output_file, tile_path: str, pixel_y: int, pixel_x: int):
   lat, lon = convert_coordinates(tile_x, tile_y, pixel_x, pixel_y)
 
   # Saves to the output file: tile/pixel coordinates, and a link to the match
-  output_file.write(f"({tile_x:04d}, {tile_y:04d}, {pixel_x:03d}, {pixel_y:03d}) -- https://wplace.live/?lat={lat}&lng={lon}&zoom=16.15")
+  output_file.write(f"({tile_x:04d}, {tile_y:04d}, {pixel_x:03d}, {pixel_y:03d}) -- https://wplace.live/?lat={lat}&lng={lon}&zoom=16.15\n")
   output_file.flush()
   os.fsync(output_file.fileno())
 
@@ -245,7 +246,12 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled):
 
       # Outputs 10% intervals, OR in test mode, every image
       statement_output = f"[gpu] Buffered {images_done}/{total_images} images ({images_done_percent:.2f}%)"
-      if ((int(images_done_percent) % 10) == 0):
+
+      # Handles printing debug statements, or prints normally every 10%
+      global _last_printed_milestone
+      milestone = (int(images_done_percent) // 10) * 10
+      if milestone != _last_printed_milestone:
+        _last_printed_milestone = milestone
         print(statement_output)
       else:
         debug(statement_output)
@@ -273,7 +279,10 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled):
         debug(f"[gpu] Done scanning batch in {int(batch_time_hours):02d}:{int(batch_time_minutes):02d}:{batch_time_seconds:06.3f}.")
   
   except Exception as e:
-    traceback.print_exc(file=output_file)
+
+    # Outputs the stack trace to the output file if in debug mode
+    if _debugging_enabled: traceback.print_exc(file=output_file)
+    else: traceback.print_exc()
     raise # Rethrow the exception
 
   output_file.close() # Exits the output file
