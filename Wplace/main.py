@@ -2,6 +2,7 @@ import sys
 import argparse
 
 import config
+from Wplace.debug import debug
 from Wplace.startup import startup
 from Wplace.producers import workers
 
@@ -56,8 +57,10 @@ if __name__ == "__main__":
   apply_args(args)
 
   # Runs the startup script
-  all_paths, templates, queue, semaphore = startup()
+  all_paths, templates, queue, semaphore, minimum_pixels = startup()
+
+  debug(f"Minimum possible pixels: {minimum_pixels}")
 
   # Starts the workers/producers
-  workers(all_paths, queue, semaphore)
-  
+  workers(all_paths, queue, semaphore, minimum_pixels)
+

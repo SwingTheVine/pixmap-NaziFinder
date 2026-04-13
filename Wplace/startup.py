@@ -7,6 +7,8 @@ from PIL import Image
 import config
 from Wplace.debug import debug
 
+minimum_pixels = 10^6 # Minimum number of pixels possible across all templates
+
 # Converts one template to offsets
 def load_template_offsets(template_path: str):
 
@@ -105,6 +107,10 @@ def startup():
       primary_offsets, nonprimary_offsets = load_template_offsets(path)
       templates.append((primary_offsets, nonprimary_offsets))
       debug(f"│├─ {template_file}: {len(primary_offsets)} primary, {len(nonprimary_offsets)} non-primary pixels")
+
+      # Minimum pixel variable will contain the smallest
+      if len(primary_offsets): minimum_pixels = min(len(primary_offsets), minimum_pixels)
+      if len(nonprimary_offsets): minimum_pixels = min(len(nonprimary_offsets), minimum_pixels)
   
   debug("│└─ Done!")
   debug("├┬ 3/4 Loading queue...")
@@ -120,4 +126,4 @@ def startup():
   debug("│└─ Done!")
 
   print("└─ Startup complete!")
-  return all_paths, templates, queue, semaphore
+  return all_paths, templates, queue, semaphore, minimum_pixels

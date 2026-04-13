@@ -10,16 +10,18 @@ from Wplace.debug import debug
 _queue = None
 _semaphore = None
 _worker_id = None
+_minimum_pixels = 10^6
 
 _worker_counter = None # Static
 
 # Runs once when the worker is spawned
 # Obtains the queue and semaphore and binds them to local variables without making a copy
-def _worker_init(queue, semaphore, counter):
+def _worker_init(queue, semaphore, counter, minimum_pixels):
   
   global _queue, _semaphore, _worker_id, _worker_counter
   _queue = queue
   _semaphore = semaphore
+  _minimum_pixels = minimum_pixels
 
   # Increments the worker ID every time a worker is spawned
   with counter.get_lock():
@@ -38,6 +40,12 @@ def _worker_task(image_path):
 
   # Converts the image to a Uint8 array
   image_array = np.array(image_RGBA, dtype = np.uint8)
+
+  # Skip the tile if it is too transparent to contain a template
+  if not is_worth_scanning(image_array):
+    _semaphore.release() # Free/consume the image
+    debug(f"[{_worker_id}] Skipped tile ({parent}, {name})")
+    return # Early-exit
 
   # Converts the Uint8 array to a LUT
   image_indexed = rgba_to_index(image_array)
@@ -75,8 +83,18 @@ def rgba_to_index(arr: np.ndarray) -> np.ndarray:
 
   return out # Returns the new array
 
+# Does the image contain enough pixels for a template to exist?
+def is_worth_scanning(image_array: np.ndarray) -> bool:
+  
+  alpha = image_array[:, :, 3] # Obtains the alpha
+
+  opaque_pixels = np.count_nonzero(alpha) # Stores number of opaque pixels
+
+  # Return true if the image contains AT LEAST enough pixels to match a template
+  return opaque_pixels >= _minimum_pixels
+
 # Spawns worker threads
-def workers(all_paths, queue, semaphore):
+def workers(all_paths, queue, semaphore, minimum_pixels):
   # Also kills the GPU thread
 
   print("Spawning workers...")
@@ -88,7 +106,7 @@ def workers(all_paths, queue, semaphore):
   with Pool(
     processes = config.WORKER_COUNT,
     initializer = _worker_init,
-    initargs = (queue, semaphore, counter)
+    initargs = (queue, semaphore, counter, minimum_pixels)
   ) as pool:
     pool.map(_worker_task, all_paths)
   # The code will halt here until all canvas tiles are put in the queue
