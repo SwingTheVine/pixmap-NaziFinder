@@ -2,7 +2,8 @@ import sys
 import argparse
 
 import config
-from startup import startup
+from Wplace.startup import startup
+from Wplace.producers import workers
 
 # Setup for CLI flags
 def parse_args():
@@ -57,4 +58,6 @@ if __name__ == "__main__":
   # Runs the startup script
   all_paths, templates, queue, semaphore = startup()
 
-
+  # Starts the workers/producers
+  workers(all_paths, queue, semaphore)
+  

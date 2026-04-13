@@ -1,10 +1,11 @@
 import os
 import numpy as np
-import multiprocessing as mp
+from multiprocessing import Pool
+from multiprocessing import Value
 from PIL import Image
 
 import config
-from debug import debug
+from Wplace.debug import debug
 
 _queue = None
 _semaphore = None
@@ -76,18 +77,23 @@ def rgba_to_index(arr: np.ndarray) -> np.ndarray:
 
 # Spawns worker threads
 def workers(all_paths, queue, semaphore):
-  # Also kills workers
+  # Also kills the GPU thread
 
-  counter = mp.Value("i", 0) # Shares this (i)nteger across all workers
+  print("Spawning workers...")
+  debug(f"Workers IDs are 0-{config.WORKER_COUNT - 1}")
+
+  counter = Value("i", 0) # Shares this (i)nteger across all workers
 
   # Starts the worker pool
-  with mp.Pool(
+  with Pool(
     processes = config.WORKER_COUNT,
     initializer = _worker_init,
     initargs = (queue, semaphore, counter)
   ) as pool:
     pool.map(_worker_task, all_paths)
-  # It is implied that the code will halt here until the queue is empty
+  # The code will halt here until all canvas tiles are put in the queue
+
+  print("Killing GPU thread...")
 
   # Poisons the queue
   queue.put(None)

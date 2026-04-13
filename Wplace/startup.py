@@ -5,7 +5,7 @@ from multiprocessing import Semaphore, Queue
 from PIL import Image
 
 import config
-from debug import debug
+from Wplace.debug import debug
 
 # Converts one template to offsets
 def load_template_offsets(template_path: str):
