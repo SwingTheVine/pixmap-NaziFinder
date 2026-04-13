@@ -64,7 +64,7 @@ def apply_args(args):
   # If the script is running in test mode...
   if args.test: 
 
-    print("Running in test mode...")
+    print("[main] Running in test mode...")
     config.DEBUGGING_ENABLED = args.test
     return # All other flags should be ignored in test mode
 
@@ -77,6 +77,7 @@ def apply_args(args):
   if args.batch_size is not None: config.BATCH_SIZE = args.batch_size
   if args.min_tile_size is not None: config.MINIMUM_BYTE_SIZE = args.min_tile_size
   if args.restart is not None: config.SHOULD_RESTART = args.restart
+  if args.gpu is not None: config.GPU_INDEX = args.gpu
 
 # Returns a list of usable GPUs
 def gpu_out() -> list:
@@ -103,4 +104,6 @@ if __name__ == "__main__":
 
   # Starts the workers/producers
   workers(all_paths, queue, semaphore, minimum_pixels)
+
+  # GPU thread goes here
 

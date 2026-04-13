@@ -183,6 +183,10 @@ def gpu_thread(queue, semaphore, templates, total_images):
   batch_start_index = 0
   images_done = 0
 
+  cupy.cuda.Device(config.GPU_INDEX).use()
+  gpu_name = cupy.cuda.runtime.getDeviceProperties(cupy.cuda.Device().id)["name"].decode("utf-8")
+  debug(f"[gpu] Thread using GPU device '{gpu_name}'")
+
   # Opens the output file
   output_file = open(config.OUTPUT_FILE, "a", buffering=1)
   debug(f"[gpu] Ready! Waiting for {config.BATCH_SIZE} available images.")
