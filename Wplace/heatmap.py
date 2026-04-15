@@ -46,15 +46,29 @@ def parse_coords(filepath: str) -> dict[tuple[int, int], int]:
     return counts
 
 
-def build_heatmap_array(counts: dict[tuple[int, int], int], size: int = 2048) -> np.ndarray:
+def build_heatmap_array(counts: dict[tuple[int, int], int], size: int = 2048, mark_size: int = 1) -> np.ndarray:
     """
     Build a float32 array [size x size] with values in [0.0, 1.0].
     Values are normalised to the maximum occurrence count.
+
+    mark_size: each coordinate is stamped onto a (mark_size x mark_size) square
+               centered on that pixel. Must be a positive odd integer; even values
+               are rounded up to the next odd number so centering is exact.
     """
+    # Ensure mark_size is odd so the square centres cleanly on the pixel.
+    if mark_size % 2 == 0:
+        mark_size += 1
+
     grid = np.zeros((size, size), dtype=np.float32)
+    half = mark_size // 2
 
     for (x, y), count in counts.items():
-        grid[y, x] = count  # row = y, col = x
+        r0 = max(0, y - half)
+        r1 = min(size, y + half + 1)
+        c0 = max(0, x - half)
+        c1 = min(size, x + half + 1)
+        # Use the max so overlapping marks don't artificially inflate counts.
+        grid[r0:r1, c0:c1] = np.maximum(grid[r0:r1, c0:c1], count)
 
     max_val = grid.max()
     if max_val > 0:
@@ -62,88 +76,45 @@ def build_heatmap_array(counts: dict[tuple[int, int], int], size: int = 2048) ->
 
     return grid
 
+
 def red_hot_rgba(intensity: np.ndarray) -> np.ndarray:
-  """
-  Test substitute: any pixel with a non-zero intensity becomes
-  fully opaque black. Zero-intensity pixels remain transparent.
-  """
-  h, w = intensity.shape
-  rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    """
+    Map intensity [0..1] to black with alpha in [50%, 100%].
 
-  hit = intensity > 0
-  rgba[hit, 3] = 255  # alpha = fully opaque where any match exists
+    Pixels with zero intensity remain fully transparent.
+    Any hit maps to at least 50% opacity; the highest-count pixel
+    reaches 100% opacity. RGB is always black (0, 0, 0).
+    """
+    h, w = intensity.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
 
-  # RGB stays 0 (black)
+    hit = intensity > 0
 
-  return rgba
+    # Remap [0..1] -> [0.5..1.0], but only where there is a hit.
+    alpha = np.where(hit, 0.5 + intensity * 0.5, 0.0)
+    rgba[:, :, 3] = (alpha * 255).astype(np.uint8)
 
-# def red_hot_rgba(intensity: np.ndarray) -> np.ndarray:
-#     """
-#     Map intensity [0..1] to a red-hot RGBA colour.
+    # RGB stays 0 (black).
 
-#     Red-hot palette:
-#         0.00 -> black  (0,   0,   0)
-#         0.33 -> red    (255, 0,   0)
-#         0.66 -> orange (255, 165, 0)
-#         1.00 -> white  (255, 255, 255)
+    return rgba
 
-#     Alpha equals intensity (so zero-count pixels are fully transparent).
-#     """
-#     h, w = intensity.shape
-#     rgba = np.zeros((h, w, 4), dtype=np.uint8)
-
-#     i = intensity  # shorthand
-
-#     # --- Red channel ---
-#     # black->red in [0, 0.33], red->orange in [0.33, 0.66], orange->white in [0.66, 1.0]
-#     r = np.where(i <= 0.33, i / 0.33,
-#         np.where(i <= 0.66, 1.0,
-#                              1.0))
-#     rgba[:, :, 0] = (r * 255).astype(np.uint8)
-
-#     # --- Green channel ---
-#     # 0 until 0.66, then ramps to 255 by 1.0
-#     g = np.where(i <= 0.66, 0.0,
-#                               (i - 0.66) / 0.34)
-#     rgba[:, :, 1] = (g * 255).astype(np.uint8)
-
-#     # --- Blue channel ---
-#     # stays 0 until 0.85, then ramps to 255 (gives the "white-hot" tip)
-#     b = np.where(i <= 0.85, 0.0,
-#                               (i - 0.85) / 0.15)
-#     rgba[:, :, 2] = (b * 255).astype(np.uint8)
-
-#     # --- Alpha channel --- proportional to intensity
-#     rgba[:, :, 3] = (i * 255).astype(np.uint8)
-
-#     return rgba
-
-
-# def composite(base: Image.Image, heatmap_rgba: np.ndarray) -> Image.Image:
-#     """Alpha-composite the heatmap over the base image."""
-#     base_rgba = base.convert("RGBA")
-#     heat_img = Image.fromarray(heatmap_rgba, mode="RGBA")
-#     result = Image.alpha_composite(base_rgba, heat_img)
-#     return result
 
 def composite(base: Image.Image, heatmap_rgba: np.ndarray) -> Image.Image:
     """Alpha-composite the heatmap over the base image."""
     base_rgba = base.convert("RGBA")
     heat_img = Image.fromarray(heatmap_rgba, mode="RGBA")
-    # Split off the alpha channel to use as a paste mask
-    r, g, b, a = heat_img.split()
-    base_rgba.paste(heat_img, mask=a)
-    return base_rgba
+    result = Image.alpha_composite(base_rgba, heat_img)
+    return result
 
 
 def main():
-    print("Starting...")
-
-    if len(sys.argv) != 4:
-        print("Usage: python heatmap.py <coords_file> <input_image> <output_image>")
+    if len(sys.argv) not in (4, 5):
+        print("Usage: python heatmap.py <coords_file> <input_image> <output_image> [mark_size]")
+        print("  mark_size: odd integer, size of the square stamp per coordinate (default: 1)")
         sys.exit(1)
 
     coords_file, input_image, output_image = sys.argv[1], sys.argv[2], sys.argv[3]
+    mark_size = int(sys.argv[4]) if len(sys.argv) == 5 else 1
 
     # --- Validate inputs ---
     if not Path(coords_file).exists():
@@ -172,12 +143,12 @@ def main():
         return
 
     # --- Build heatmap ---
-    print("Building heatmap...")
-    grid = build_heatmap_array(counts)
+    print(f"Building heatmap (mark_size={mark_size}) ...")
+    grid = build_heatmap_array(counts, mark_size=mark_size)
     heatmap_rgba = red_hot_rgba(grid)
 
     # --- Composite ---
-    print("Compositing...")
+    print("Compositing ...")
     result = composite(base, heatmap_rgba)
 
     # --- Save ---
