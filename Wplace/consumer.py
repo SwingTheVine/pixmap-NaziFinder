@@ -188,7 +188,7 @@ def debug(*args, **kwargs):
 
 # Spawns the GPU thread, and starts scanning images
 # Images only scan, provided there are a full batch of them, or a poison pill is observed
-def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, skipped_tiles):
+def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, skipped_tiles, queue_count):
 
   print("[gpu] Spawning GPU thread...")
 
@@ -212,6 +212,8 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
 
     while True:
 
+      debug(f"Queue size: {queue.qsize()}? Empty: {queue.empty()}; Full: {queue.full()}")
+
       queue_item = queue.get() # Retrieves an item from the queue
       # If there are no items in the queue, the thread halts here
 
@@ -220,13 +222,33 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
 
         print("[gpu] GPU thread poisoned!")
 
-        # If there are still items to scan
-        if batch_arrays:
+        # Failsafe
+        # for i in range(0, queue.qsize()):
+        #   debug(f"[gpu] Failsafe grab at queue #{i}...")
+        #   try:
+        #     queue_item = queue.get_nowait() # Get without blocking. Raises errors when getting nothing
+        #     semaphore.release()
+        #     queue_count.value -= 1 # Updates queue size counter to reflect images processed
+        #     path, indexed = queue_item # Deconstruct the item
+        #     batch_arrays.append(indexed)
+        #     batch_paths.append(path)
+        #   except Exception as e:
+        #     debug(f"[gpu] Queue grab failed!\n{e}")
+
+        debug(f"len(batch_arrays) = {len(batch_arrays)}")
+
+        # If there are still items to scan...
+        if len(batch_arrays):
 
           print("[gpu] Completing one last image scan before death...")
+          debug(f"[gpu] Queue size: {queue_count.value}")
 
           # Scans the images in the partial batch
           _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
+
+          with queue_count.get_lock():
+            queue_count.value -= len(batch_arrays)
+          debug(f"[gpu] Done scanning batch of {len(batch_arrays)}. Queue size: {queue_count.value}")
       
         break # Exit the while-loop
       
@@ -234,8 +256,20 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
 
       path, indexed = queue_item # Deconstruct the item
 
+      if '896' in path:
+        output_file.write("Scanning 896.png\n")
+        output_file.flush()
+        os.fsync(output_file.fileno())
+
+      if '2013' in path:
+        output_file.write("Scanning 2013.png\n")
+        output_file.flush()
+        os.fsync(output_file.fileno())
+
       # Free/consume an item so that the queue has open space for more images
       semaphore.release()
+      with queue_count.get_lock():
+        queue_count.value -= 1 # Updates queue size counter to reflect images processed
 
       # Adds the queue item to the batch
       batch_arrays.append(indexed)
@@ -256,7 +290,7 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
       else:
         debug(statement_output)
       
-      debug(f"[gpu] Batch size now: {len(batch_arrays)}")
+      debug(f"[gpu] Batch size now: {len(batch_arrays)} Queue size: {queue_count.value}")
 
       # If the batch is full...
       if len(batch_arrays) == config.BATCH_SIZE:
@@ -267,7 +301,7 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
         
         # Scans the batch
         _flush_batch(batch_arrays, batch_paths, templates, output_file, batch_start_index)
-
+        
         # Post-batch clean-up
         batch_start_index += config.BATCH_SIZE
         batch_arrays = []
@@ -276,7 +310,7 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
         batch_time_elapsed = time.perf_counter() - batch_time_start
         batch_time_hours, batch_time_remainder = divmod(batch_time_elapsed, 3600)
         batch_time_minutes, batch_time_seconds = divmod(batch_time_remainder, 60)
-        debug(f"[gpu] Done scanning batch in {int(batch_time_hours):02d}:{int(batch_time_minutes):02d}:{batch_time_seconds:06.3f}.")
+        debug(f"[gpu] Done scanning batch in {int(batch_time_hours):02d}:{int(batch_time_minutes):02d}:{batch_time_seconds:06.3f}. Queue size: {queue_count.value}")
   
   except Exception as e:
 
@@ -288,3 +322,5 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
   output_file.close() # Exits the output file
   
   print("[gpu] Killed.")
+  debug(f"[gpu] Queue size: {queue_count.value}")
+  debug(f"[gpu] Queue is empty? {queue.empty()}")

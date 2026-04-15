@@ -9,7 +9,7 @@ import os
 _SCRIPT_DIR = os.path.dirname(__file__) # Working directory parent folder
 
 # Default variable declarations, for when the user specifies no preference
-CANVAS_DIRECTORY   = os.path.join(_SCRIPT_DIR, "test-canvas") # Folder that contains the entire canvas
+CANVAS_DIRECTORY   = os.path.join(_SCRIPT_DIR, "test-canvas2") # Folder that contains the entire canvas
 OUTPUT_FILE        = os.path.join(_SCRIPT_DIR, "output.txt") # Output file that has Wplace links
 CHECKPOINT_FILE    = os.path.join(_SCRIPT_DIR, "checkpoint.txt") # Restart file
 TEMPLATE_DIRECTORY = os.path.join(_SCRIPT_DIR, "templates") # Folder that contains templates

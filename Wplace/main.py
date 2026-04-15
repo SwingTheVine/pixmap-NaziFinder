@@ -117,17 +117,18 @@ if __name__ == "__main__":
   debug(f"Minimum possible pixels: {minimum_pixels}")
 
   skipped_tiles = Value("i", 0)
+  queue_count = Value("i", 0)
 
   # Starts the workers/producers
   worker_thread = threading.Thread(
     target = workers,
-    args = (all_paths, queue, semaphore, minimum_pixels, _shutdown, skipped_tiles)
+    args = (all_paths, queue, semaphore, minimum_pixels, _shutdown, skipped_tiles, queue_count)
   )
   worker_thread.start()
 
   try:
     # Starts GPU thread
-    gpu_thread(queue, semaphore, templates, len(all_paths), config.DEBUGGING_ENABLED, skipped_tiles)
+    gpu_thread(queue, semaphore, templates, len(all_paths), config.DEBUGGING_ENABLED, skipped_tiles, queue_count)
   finally:
     worker_thread.join()
     print("FINISHED")

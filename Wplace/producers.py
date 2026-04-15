@@ -18,16 +18,17 @@ _debugging_enabled = False
 _skipped_tiles = None # Shared
 _worker_counter = None # Shared
 _shutdown = None # Shared
+_queue_count = None # Shared
 
 # Runs once when the worker is spawned
 # Obtains the queue and semaphore and binds them to local variables without making a copy
-def _worker_init(queue, semaphore, counter, minimum_pixels, debugging_enabled, shutdown, skipped_tiles):
+def _worker_init(queue, semaphore, counter, minimum_pixels, debugging_enabled, shutdown, skipped_tiles, queue_count):
 
   # Ignores SIGINT in worker threads
   signal.signal(signal.SIGINT, signal.SIG_IGN)
 
   # Declares that these are class-variables, not local
-  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels, _debugging_enabled, _shutdown, _skipped_tiles
+  global _queue, _semaphore, _worker_id, _worker_counter, _minimum_pixels, _debugging_enabled, _shutdown, _skipped_tiles, _queue_count
 
   _queue = queue
   _semaphore = semaphore
@@ -35,6 +36,7 @@ def _worker_init(queue, semaphore, counter, minimum_pixels, debugging_enabled, s
   _debugging_enabled = debugging_enabled
   _shutdown = shutdown
   _skipped_tiles = skipped_tiles
+  _queue_count = queue_count
 
   # Increments the worker ID every time a worker is spawned
   with counter.get_lock():
@@ -58,10 +60,10 @@ def _worker_task(image_path):
   # If this comment line is reached, the queue has space
 
   # Shutdown might have been requested while waiting for queue space to open, so we check again
-  if _shutdown.value: 
-    _skipped_tiles.value += 1
-    _semaphore.release()
-    return
+  # if _shutdown.value: 
+  #   _skipped_tiles.value += 1
+  #   _semaphore.release()
+  #   return
 
   try:
     parent = os.path.basename(os.path.dirname(image_path)) # Tile X
@@ -93,10 +95,13 @@ def _worker_task(image_path):
     image_indexed = rgba_to_index(image_array)
 
     _queue.put((image_path, image_indexed)) # Adds the image to the queue
-    
-    debug(f"[{_worker_id}] Queued tile ({parent}, {name})")
 
-  except Exception:
+    with _queue_count.get_lock():
+      _queue_count.value += 1 # Increment counter for queue size by one
+    
+    debug(f"[{_worker_id}] Queued tile ({parent}, {name}). Queue size: {_queue_count.value}")
+  except Exception as e:
+    debug(f"[{_worker_id}] Encountered an error with tile ({parent}, {name})\n{e}")
     _skipped_tiles.value += 1
     _semaphore.release()
     raise
@@ -145,7 +150,7 @@ def debug(*args, **kwargs):
   return
 
 # Spawns worker threads
-def workers(all_paths, queue, semaphore, minimum_pixels, shutdown, skipped_tiles):
+def workers(all_paths, queue, semaphore, minimum_pixels, shutdown, skipped_tiles, queue_count):
   # Also kills the GPU thread
 
   print("Spawning workers...")
@@ -159,7 +164,7 @@ def workers(all_paths, queue, semaphore, minimum_pixels, shutdown, skipped_tiles
     with Pool(
       processes = config.WORKER_COUNT,
       initializer = _worker_init,
-      initargs = (queue, semaphore, counter, minimum_pixels, config.DEBUGGING_ENABLED, shutdown, skipped_tiles)
+      initargs = (queue, semaphore, counter, minimum_pixels, config.DEBUGGING_ENABLED, shutdown, skipped_tiles, queue_count)
     ) as pool:
       for result in pool.imap_unordered(_worker_task, all_paths):
         if shutdown.value:
@@ -177,7 +182,7 @@ def workers(all_paths, queue, semaphore, minimum_pixels, shutdown, skipped_tiles
 
   finally:
 
-    debug("Terminating worker pool...")
+    print("Terminating worker pool...")
     shutdown.value = True
 
     print("Killing GPU thread...")
