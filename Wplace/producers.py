@@ -60,10 +60,9 @@ def _worker_task(image_path):
   # If this comment line is reached, the queue has space
 
   # Shutdown might have been requested while waiting for queue space to open, so we check again
-  # if _shutdown.value: 
-  #   _skipped_tiles.value += 1
-  #   _semaphore.release()
-  #   return
+  if _shutdown.value: 
+    _semaphore.release()
+    return
 
   try:
     parent = os.path.basename(os.path.dirname(image_path)) # Tile X

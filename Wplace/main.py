@@ -114,6 +114,16 @@ if __name__ == "__main__":
   # Runs the startup script
   all_paths, templates, queue, semaphore, minimum_pixels = startup()
 
+  # Appends the first 3x max queue amount of images to the end of the list of images to scan
+  for i in range(config.MAX_QUEUE_SIZE * 3):
+    all_paths.append(all_paths[i])
+  # This is to get around the REALLY ANNOYING
+  # issue where images in the queue are lost
+  # after the poison pill is sent, even though
+  # thats impossible...
+  # Because of this addition of images to the queue,
+  # dummy images will be lost instead of real images.
+
   debug(f"Minimum possible pixels: {minimum_pixels}")
 
   skipped_tiles = Value("i", 0)

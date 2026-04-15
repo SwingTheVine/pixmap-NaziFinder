@@ -256,16 +256,6 @@ def gpu_thread(queue, semaphore, templates, total_images, debugging_enabled, ski
 
       path, indexed = queue_item # Deconstruct the item
 
-      if '896' in path:
-        output_file.write("Scanning 896.png\n")
-        output_file.flush()
-        os.fsync(output_file.fileno())
-
-      if '2013' in path:
-        output_file.write("Scanning 2013.png\n")
-        output_file.flush()
-        os.fsync(output_file.fileno())
-
       # Free/consume an item so that the queue has open space for more images
       semaphore.release()
       with queue_count.get_lock():
